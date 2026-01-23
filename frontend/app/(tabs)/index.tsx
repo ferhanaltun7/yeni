@@ -148,7 +148,7 @@ export default function Dashboard() {
         {/* Upcoming Bills */}
         <View style={styles.section}>
           <View style={styles.sectionHeader}>
-            <Text style={styles.sectionTitle}>Yakınlaşan Faturalar</Text>
+            <Text style={styles.sectionTitle}>Yakınlaşan Giderler</Text>
             <TouchableOpacity onPress={() => router.push('/(tabs)/bills')}>
               <Text style={styles.seeAllText}>Tümünü Gör</Text>
             </TouchableOpacity>
@@ -157,7 +157,7 @@ export default function Dashboard() {
           {upcomingBills.length === 0 ? (
             <View style={styles.emptyState}>
               <Ionicons name="checkmark-done-circle" size={48} color={COLORS.success} />
-              <Text style={styles.emptyText}>Harika! Bekleyen faturanız yok.</Text>
+              <Text style={styles.emptyText}>Harika! Bekleyen gideriniz yok.</Text>
             </View>
           ) : (
             upcomingBills.map((bill) => (
