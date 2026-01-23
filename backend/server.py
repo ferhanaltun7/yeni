@@ -524,88 +524,160 @@ class BillScanResponse(BaseModel):
     raw_text: Optional[str] = None
     error: Optional[str] = None
 
+# OCR.space API for text extraction
+OCR_API_KEY = "K85482945088957"  # Free tier
+OCR_API_URL = "https://api.ocr.space/parse/image"
+
+async def extract_text_from_image(image_base64: str) -> Optional[str]:
+    """Extract text from image using OCR.space API"""
+    try:
+        import aiohttp
+        
+        # Prepare form data
+        data = aiohttp.FormData()
+        data.add_field('apikey', OCR_API_KEY)
+        data.add_field('base64Image', f"data:image/jpeg;base64,{image_base64}")
+        data.add_field('language', 'tur')  # Turkish
+        data.add_field('isOverlayRequired', 'false')
+        data.add_field('detectOrientation', 'true')
+        data.add_field('scale', 'true')
+        data.add_field('OCREngine', '2')
+        
+        async with aiohttp.ClientSession() as session:
+            async with session.post(OCR_API_URL, data=data, timeout=30) as response:
+                if response.status != 200:
+                    logger.error(f"OCR API error: {response.status}")
+                    return None
+                
+                result = await response.json()
+                
+                if result.get('IsErroredOnProcessing'):
+                    logger.error(f"OCR processing error: {result.get('ErrorMessage')}")
+                    return None
+                
+                if result.get('ParsedResults') and len(result['ParsedResults']) > 0:
+                    return result['ParsedResults'][0].get('ParsedText')
+                
+                return None
+    except Exception as e:
+        logger.error(f"OCR extraction error: {e}")
+        return None
+
+async def parse_bill_with_ai(ocr_text: str) -> dict:
+    """Parse OCR text with AI to extract bill information"""
+    try:
+        from emergentintegrations.llm.chat import LlmChat, UserMessage
+        
+        chat = LlmChat(
+            api_key=EMERGENT_LLM_KEY,
+            session_id=f"bill_parse_{uuid.uuid4().hex[:8]}",
+            system_message="""Sen bir Türk fatura analiz uzmanısın. Sana verilen OCR metninden fatura bilgilerini çıkarıyorsun.
+
+Metinden şu bilgileri çıkar:
+1. title: Fatura başlığı (örn: "Enerjisa Elektrik Faturası", "İSKİ Su Faturası")
+2. amount: Ödenecek tutar (sadece sayı, örn: 456.78)
+3. due_date: Son ödeme tarihi (YYYY-MM-DD formatında)
+4. category: Kategori (SADECE şunlardan biri: electricity, water, gas, internet, phone, rent, market, subscriptions)
+
+Kategori belirleme kuralları:
+- elektrik, enerji, enerjisa, tedaş, bedaş → electricity
+- su, iski, aski → water  
+- doğalgaz, igdaş → gas
+- internet, ttnet, türk telekom, superonline → internet
+- telefon, gsm, turkcell, vodafone → phone
+- kira → rent
+- market, migros, a101, bim → market
+- netflix, spotify, abonelik → subscriptions
+
+SADECE JSON formatında yanıt ver, başka hiçbir şey yazma:
+{"title": "...", "amount": 123.45, "due_date": "2025-01-20", "category": "electricity"}
+
+Bulamadığın alanlar için null yaz."""
+        ).with_model("openai", "gpt-4o-mini")
+        
+        user_message = UserMessage(
+            text=f"Bu fatura metninden bilgileri çıkar:\n\n{ocr_text[:2000]}"
+        )
+        
+        response = await chat.send_message(user_message)
+        
+        # Parse JSON response
+        clean_response = response.strip()
+        if clean_response.startswith("```"):
+            clean_response = re.sub(r'^```(?:json)?\n?', '', clean_response)
+            clean_response = re.sub(r'\n?```$', '', clean_response)
+        
+        return json.loads(clean_response)
+        
+    except Exception as e:
+        logger.error(f"AI parsing error: {e}")
+        return {}
+
 @api_router.post("/bills/scan", response_model=BillScanResponse)
 async def scan_bill(
     request: BillScanRequest,
     current_user: User = Depends(get_current_user)
 ):
-    """Scan a bill image and extract information using AI"""
-    if not EMERGENT_LLM_KEY:
-        raise HTTPException(status_code=500, detail="OCR servisi yapılandırılmamış")
+    """Scan a bill image and extract information using OCR + AI"""
     
     try:
-        from emergentintegrations.llm.chat import LlmChat, UserMessage
-        
-        # Prepare image data URL
+        # Step 1: Extract text from image using OCR
         image_base64 = request.image_base64
         if image_base64.startswith("data:"):
-            # Already has data URL prefix
-            image_data_url = image_base64
+            image_base64 = image_base64.split(",")[1]
+        
+        logger.info("Starting OCR extraction...")
+        ocr_text = await extract_text_from_image(image_base64)
+        
+        if not ocr_text or len(ocr_text.strip()) < 10:
+            return BillScanResponse(
+                success=False,
+                error="Faturada metin bulunamadı. Lütfen daha net bir fotoğraf çekin."
+            )
+        
+        logger.info(f"OCR extracted {len(ocr_text)} characters")
+        
+        # Step 2: Parse text with AI
+        if EMERGENT_LLM_KEY:
+            logger.info("Parsing with AI...")
+            parsed_data = await parse_bill_with_ai(ocr_text)
         else:
-            image_data_url = f"data:image/jpeg;base64,{image_base64}"
+            parsed_data = {}
         
-        # Initialize chat
-        chat = LlmChat(
-            api_key=EMERGENT_LLM_KEY,
-            session_id=f"ocr_{current_user.user_id}_{uuid.uuid4().hex[:8]}",
-            system_message="""Sen bir fatura analiz asistanısın. Türkçe fatura görsellerini analiz edip bilgileri çıkarıyorsun.
-
-Görseldeki faturadan şu bilgileri çıkar:
-1. Fatura başlığı/türü (örn: Elektrik Faturası, Su Faturası, vb.)
-2. Ödenecek tutar (TL cinsinden, sadece sayı)
-3. Son ödeme tarihi (YYYY-MM-DD formatında)
-4. Kategori (şunlardan biri olmalı: electricity, water, internet, gas, phone, rent, market, subscriptions)
-
-Yanıtını SADECE JSON formatında ver, başka bir şey yazma:
-{"title": "...", "amount": 123.45, "due_date": "2025-01-20", "category": "..."}
-
-Eğer bir bilgiyi bulamazsan o alan için null yaz."""
-        ).with_model("openai", "gpt-4o-mini")
+        # Extract values
+        title = parsed_data.get("title")
+        amount = parsed_data.get("amount")
+        due_date = parsed_data.get("due_date")
+        category = parsed_data.get("category")
         
-        # Send message with image URL embedded in text
-        prompt = f"""Bu fatura görselini analiz et ve bilgileri JSON formatında çıkar.
-
-Görsel (base64): {image_data_url[:100]}... [görsel verisi]
-
-Lütfen görseldeki fatura bilgilerini analiz et."""
+        # Validate amount
+        if amount is not None:
+            try:
+                amount = float(amount)
+                if amount <= 0 or amount > 100000:
+                    amount = None
+            except (ValueError, TypeError):
+                amount = None
         
-        user_message = UserMessage(text=prompt)
-        response = await chat.send_message(user_message)
+        # Validate category
+        valid_categories = ['electricity', 'water', 'gas', 'internet', 'phone', 'rent', 'market', 'subscriptions']
+        if category and category not in valid_categories:
+            category = None
         
-        # Since gpt-4o-mini may not process the image, let's try a different approach
-        # Return a helpful message asking user to input manually
+        has_data = title or amount or due_date or category
         
-        # Try to parse any JSON in response
-        try:
-            clean_response = response.strip()
-            if clean_response.startswith("```"):
-                clean_response = re.sub(r'^```(?:json)?\n?', '', clean_response)
-                clean_response = re.sub(r'\n?```$', '', clean_response)
-            
-            # Try to find JSON in response
-            json_match = re.search(r'\{[^}]+\}', clean_response)
-            if json_match:
-                data = json.loads(json_match.group())
-                return BillScanResponse(
-                    success=True,
-                    title=data.get("title"),
-                    amount=float(data["amount"]) if data.get("amount") else None,
-                    due_date=data.get("due_date"),
-                    category=data.get("category"),
-                    raw_text=response
-                )
-        except (json.JSONDecodeError, AttributeError):
-            pass
-        
-        # If we couldn't extract info, return failure
         return BillScanResponse(
-            success=False,
-            raw_text=response,
-            error="Fatura bilgileri otomatik okunamadı. Lütfen manuel olarak girin."
+            success=True,
+            title=title,
+            amount=amount,
+            due_date=due_date,
+            category=category,
+            raw_text=ocr_text[:500] if ocr_text else None,
+            error=None if has_data else "Fatura bilgileri tam olarak çıkarılamadı. Lütfen kontrol edin."
         )
-            
+        
     except Exception as e:
-        logger.error(f"OCR error: {e}")
+        logger.error(f"Bill scan error: {e}")
         return BillScanResponse(
             success=False,
             error=f"Fatura taraması başarısız: {str(e)}"
