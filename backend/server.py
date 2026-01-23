@@ -536,7 +536,7 @@ async def scan_bill(
     try:
         from emergentintegrations.llm.chat import LlmChat, UserMessage, FileContent
         
-        # Initialize chat with vision model
+        # Initialize chat with Gemini model (supports images better)
         chat = LlmChat(
             api_key=EMERGENT_LLM_KEY,
             session_id=f"ocr_{current_user.user_id}_{uuid.uuid4().hex[:8]}",
@@ -552,12 +552,17 @@ Yanıtını SADECE JSON formatında ver, başka bir şey yazma:
 {"title": "...", "amount": 123.45, "due_date": "2025-01-20", "category": "..."}
 
 Eğer bir bilgiyi bulamazsan o alan için null yaz."""
-        ).with_model("openai", "gpt-4o")
+        ).with_model("google", "gemini-2.0-flash")
         
-        # Create file content for image
+        # Create file content for image - use data URL format
+        image_base64 = request.image_base64
+        # Remove data URL prefix if present
+        if image_base64.startswith("data:"):
+            image_base64 = image_base64.split(",")[1]
+        
         file_content = FileContent(
             content_type="image/jpeg",
-            file_content_base64=request.image_base64
+            file_content_base64=image_base64
         )
         
         # Send message with image
