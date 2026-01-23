@@ -129,7 +129,7 @@ export default function Dashboard() {
           >
             <View style={styles.nextBillHeader}>
               <Ionicons name="notifications" size={24} color={COLORS.primary} />
-              <Text style={styles.nextBillTitle}>Sonraki Fatura</Text>
+              <Text style={styles.nextBillTitle}>Sonraki Gider</Text>
             </View>
             <View style={styles.nextBillContent}>
               <View>
