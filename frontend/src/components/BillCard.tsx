@@ -20,9 +20,9 @@ interface BillCardProps {
 export const BillCard: React.FC<BillCardProps> = ({ bill, onPress, onTogglePaid }) => {
   const status = getBillStatus(bill.due_date, bill.is_paid);
   const daysUntil = getDaysUntil(bill.due_date);
-  const categoryColor = CATEGORY_COLORS[bill.category] || CATEGORY_COLORS.other;
-  const categoryIcon = CATEGORY_ICONS[bill.category] || CATEGORY_ICONS.other;
-  const categoryName = CATEGORY_NAMES[bill.category] || 'Diğer';
+  const categoryColor = CATEGORY_COLORS[bill.category] || '#6B7280';
+  const categoryIcon = CATEGORY_ICONS[bill.category] || 'ellipsis-horizontal';
+  const categoryName = CATEGORY_NAMES[bill.category] || bill.category;
   
   const getStatusColor = () => {
     switch (status) {
