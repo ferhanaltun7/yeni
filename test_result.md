@@ -101,3 +101,172 @@
 #====================================================================================================
 # Testing Data - Main Agent and testing sub agent both should log testing data below this section
 #====================================================================================================
+
+user_problem_statement: "Bütçe Asistanı - Turkish personal finance app for bill tracking and reminders"
+
+backend:
+  - task: "Health Check API"
+    implemented: true
+    working: "NA"
+    file: "/app/backend/server.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: true
+    status_history:
+      - working: "NA"
+        agent: "main"
+        comment: "Basic health check endpoint at /api/ and /api/health"
+
+  - task: "Categories API"
+    implemented: true
+    working: "NA"
+    file: "/app/backend/server.py"
+    stuck_count: 0
+    priority: "medium"
+    needs_retesting: true
+    status_history:
+      - working: "NA"
+        agent: "main"
+        comment: "GET /api/categories returns bill category list in Turkish"
+
+  - task: "Auth Session Exchange"
+    implemented: true
+    working: "NA"
+    file: "/app/backend/server.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: true
+    status_history:
+      - working: "NA"
+        agent: "main"
+        comment: "POST /api/auth/session exchanges session_id for session_token via Emergent Auth"
+
+  - task: "Auth Get Me"
+    implemented: true
+    working: "NA"
+    file: "/app/backend/server.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: true
+    status_history:
+      - working: "NA"
+        agent: "main"
+        comment: "GET /api/auth/me returns current user with Authorization header"
+
+  - task: "Bills CRUD"
+    implemented: true
+    working: "NA"
+    file: "/app/backend/server.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: true
+    status_history:
+      - working: "NA"
+        agent: "main"
+        comment: "GET/POST/PUT/DELETE /api/bills endpoints for bill management"
+
+  - task: "Dashboard Stats"
+    implemented: true
+    working: "NA"
+    file: "/app/backend/server.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: true
+    status_history:
+      - working: "NA"
+        agent: "main"
+        comment: "GET /api/dashboard/stats returns bill statistics"
+
+frontend:
+  - task: "Login Screen"
+    implemented: true
+    working: "NA"
+    file: "/app/frontend/app/login.tsx"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: true
+    status_history:
+      - working: "NA"
+        agent: "main"
+        comment: "Google OAuth login via Emergent Auth"
+
+  - task: "Dashboard Screen"
+    implemented: true
+    working: "NA"
+    file: "/app/frontend/app/(tabs)/index.tsx"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: true
+    status_history:
+      - working: "NA"
+        agent: "main"
+        comment: "Main dashboard with stats, upcoming bills, quick actions"
+
+  - task: "Bills List Screen"
+    implemented: true
+    working: "NA"
+    file: "/app/frontend/app/(tabs)/bills.tsx"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: true
+    status_history:
+      - working: "NA"
+        agent: "main"
+        comment: "Bills list with filters (all/upcoming/overdue/paid)"
+
+  - task: "Add Bill Screen"
+    implemented: true
+    working: "NA"
+    file: "/app/frontend/app/add-bill.tsx"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: true
+    status_history:
+      - working: "NA"
+        agent: "main"
+        comment: "Form to add new bill with title, amount, date, category"
+
+  - task: "Bill Details Screen"
+    implemented: true
+    working: "NA"
+    file: "/app/frontend/app/bill-details.tsx"
+    stuck_count: 0
+    priority: "medium"
+    needs_retesting: true
+    status_history:
+      - working: "NA"
+        agent: "main"
+        comment: "View bill details, toggle paid status, delete"
+
+  - task: "Profile Screen"
+    implemented: true
+    working: "NA"
+    file: "/app/frontend/app/(tabs)/profile.tsx"
+    stuck_count: 0
+    priority: "low"
+    needs_retesting: true
+    status_history:
+      - working: "NA"
+        agent: "main"
+        comment: "User profile with logout and settings options"
+
+metadata:
+  created_by: "main_agent"
+  version: "1.0"
+  test_sequence: 1
+  run_ui: false
+
+test_plan:
+  current_focus:
+    - "Health Check API"
+    - "Categories API"
+    - "Auth Get Me"
+    - "Bills CRUD"
+    - "Dashboard Stats"
+  stuck_tasks: []
+  test_all: false
+  test_priority: "high_first"
+
+agent_communication:
+  - agent: "main"
+    message: "Initial MVP implementation complete. Backend has auth, bills CRUD, dashboard stats, categories. Frontend has login, onboarding, dashboard, bills list, add bill, bill details, profile screens. Please test backend APIs first using auth_testing.md playbook."
