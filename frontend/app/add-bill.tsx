@@ -364,6 +364,22 @@ const styles = StyleSheet.create({
     borderColor: COLORS.primary + '30',
     borderStyle: 'dashed',
   },
+  scanButtonTextDisabled: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: COLORS.textSecondary,
+  },
+  comingSoonBadge: {
+    backgroundColor: COLORS.warning + '20',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 8,
+  },
+  comingSoonText: {
+    fontSize: 10,
+    fontWeight: '600',
+    color: COLORS.warning,
+  },
   scanTextContainer: {
     flex: 1,
     marginLeft: 12,
