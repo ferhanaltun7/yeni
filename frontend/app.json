@@ -13,8 +13,8 @@
       "bundleIdentifier": "com.butceasistani.app",
       "infoPlist": {
         "NSCalendarsUsageDescription": "Fatura hatırlatıcılarını takvime eklemek için",
-        "NSCameraUsageDescription": "Fatura fotoğrafı çekmek için kamera kullanılır",
-        "NSPhotoLibraryUsageDescription": "Fatura fotoğrafı seçmek için galeri kullanılır"
+        "NSCameraUsageDescription": "Fatura taramak için kamera kullanılır",
+        "NSPhotoLibraryUsageDescription": "Galeriden fatura seçmek için kullanılır"
       }
     },
     "android": {
@@ -29,7 +29,8 @@
         "VIBRATE",
         "SCHEDULE_EXACT_ALARM",
         "CAMERA",
-        "READ_EXTERNAL_STORAGE"
+        "READ_EXTERNAL_STORAGE",
+        "READ_MEDIA_IMAGES"
       ]
     },
     "web": {
@@ -45,7 +46,20 @@
           "image": "./assets/images/splash-icon.png",
           "imageWidth": 200,
           "resizeMode": "contain",
-          "backgroundColor": "#000"
+          "backgroundColor": "#2563EB"
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Galeriden fatura fotoğrafı seçmek için izin gerekli",
+          "cameraPermission": "Fatura taramak için kamera izni gerekli"
+        }
+      ],
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Fatura fotoğrafı çekmek için kamera izni gerekli"
         }
       ]
     ],
