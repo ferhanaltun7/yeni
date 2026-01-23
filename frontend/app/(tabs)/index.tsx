@@ -178,7 +178,7 @@ export default function Dashboard() {
             onPress={() => router.push('/add-bill')}
           >
             <Ionicons name="add-circle" size={32} color={COLORS.primary} />
-            <Text style={styles.quickActionText}>Fatura Ekle</Text>
+            <Text style={styles.quickActionText}>Gider Ekle</Text>
           </TouchableOpacity>
           
           <TouchableOpacity
@@ -186,7 +186,7 @@ export default function Dashboard() {
             onPress={() => router.push('/(tabs)/bills')}
           >
             <Ionicons name="list" size={32} color={COLORS.secondary} />
-            <Text style={styles.quickActionText}>Tüm Faturalar</Text>
+            <Text style={styles.quickActionText}>Tüm Giderler</Text>
           </TouchableOpacity>
         </View>
       </ScrollView>
