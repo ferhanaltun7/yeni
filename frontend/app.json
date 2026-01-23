@@ -1,22 +1,32 @@
 {
   "expo": {
-    "name": "frontend",
-    "slug": "frontend",
+    "name": "Bütçe Asistanı",
+    "slug": "butce-asistani",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
-    "scheme": "frontend",
+    "scheme": "butceasistani",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "bundleIdentifier": "com.butceasistani.app",
+      "infoPlist": {
+        "NSCalendarsUsageDescription": "Fatura hatırlatıcılarını takvime eklemek için"
+      }
     },
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/adaptive-icon.png",
-        "backgroundColor": "#000"
+        "backgroundColor": "#2563EB"
       },
-      "edgeToEdgeEnabled": true
+      "edgeToEdgeEnabled": true,
+      "package": "com.butceasistani.app",
+      "permissions": [
+        "RECEIVE_BOOT_COMPLETED",
+        "VIBRATE",
+        "SCHEDULE_EXACT_ALARM"
+      ]
     },
     "web": {
       "bundler": "metro",
