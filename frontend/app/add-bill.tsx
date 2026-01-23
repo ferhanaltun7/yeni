@@ -196,7 +196,7 @@ export default function AddBill() {
 
           {/* Title */}
           <View style={styles.inputGroup}>
-            <Text style={styles.label}>Fatura Adı *</Text>
+            <Text style={styles.label}>Gider Adı *</Text>
             <TextInput
               style={styles.input}
               value={title}
