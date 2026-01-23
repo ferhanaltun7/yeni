@@ -25,7 +25,6 @@ export const CATEGORY_COLORS: Record<string, string> = {
   subscriptions: '#EF4444',
   rent: '#14B8A6',
   gas: '#F97316',
-  other: '#6B7280',
 };
 
 export const CATEGORY_ICONS: Record<string, string> = {
@@ -37,7 +36,6 @@ export const CATEGORY_ICONS: Record<string, string> = {
   subscriptions: 'card',
   rent: 'home',
   gas: 'flame',
-  other: 'ellipsis-horizontal',
 };
 
 export const CATEGORY_NAMES: Record<string, string> = {
@@ -49,5 +47,19 @@ export const CATEGORY_NAMES: Record<string, string> = {
   subscriptions: 'Abonelikler',
   rent: 'Kira',
   gas: 'Doğalgaz',
-  other: 'Diğer',
 };
+
+export const CATEGORY_GROUPS = [
+  {
+    id: 'bills',
+    name: 'Faturalar',
+    icon: 'receipt',
+    subcategories: ['electricity', 'water', 'internet', 'gas', 'phone'],
+  },
+  {
+    id: 'expenses',
+    name: 'Giderler',
+    icon: 'wallet',
+    subcategories: ['rent', 'market', 'subscriptions'],
+  },
+];
