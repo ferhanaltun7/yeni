@@ -510,6 +510,93 @@ async def get_category_groups():
     """Get bill categories grouped"""
     return CATEGORY_GROUPS
 
+# ============== OCR / BILL SCANNING ==============
+
+class BillScanRequest(BaseModel):
+    image_base64: str
+
+class BillScanResponse(BaseModel):
+    success: bool
+    title: Optional[str] = None
+    amount: Optional[float] = None
+    due_date: Optional[str] = None
+    category: Optional[str] = None
+    raw_text: Optional[str] = None
+    error: Optional[str] = None
+
+@api_router.post("/bills/scan", response_model=BillScanResponse)
+async def scan_bill(
+    request: BillScanRequest,
+    current_user: User = Depends(get_current_user)
+):
+    """Scan a bill image and extract information using AI"""
+    if not EMERGENT_LLM_KEY:
+        raise HTTPException(status_code=500, detail="OCR servisi yapılandırılmamış")
+    
+    try:
+        from emergentintegrations.llm.chat import LlmChat, UserMessage, ImageContent
+        
+        # Initialize chat with vision model
+        chat = LlmChat(
+            api_key=EMERGENT_LLM_KEY,
+            session_id=f"ocr_{current_user.user_id}_{uuid.uuid4().hex[:8]}",
+            system_message="""Sen bir fatura analiz asistanısın. Türkçe fatura görsellerini analiz edip bilgileri çıkarıyorsun.
+            
+Görseldeki faturadan şu bilgileri çıkar:
+1. Fatura başlığı/türü (örn: Elektrik Faturası, Su Faturası, vb.)
+2. Ödenecek tutar (TL cinsinden, sadece sayı)
+3. Son ödeme tarihi (YYYY-MM-DD formatında)
+4. Kategori (şunlardan biri olmalı: electricity, water, internet, gas, phone, rent, market, subscriptions)
+
+Yanıtını SADECE JSON formatında ver, başka bir şey yazma:
+{"title": "...", "amount": 123.45, "due_date": "2025-01-20", "category": "..."}
+
+Eğer bir bilgiyi bulamazsan o alan için null yaz."""
+        ).with_model("openai", "gpt-4o")
+        
+        # Create image content
+        image_content = ImageContent(image_base64=request.image_base64)
+        
+        # Send message with image
+        user_message = UserMessage(
+            text="Bu fatura görselini analiz et ve bilgileri JSON formatında çıkar.",
+            image_contents=[image_content]
+        )
+        
+        response = await chat.send_message(user_message)
+        
+        # Parse JSON response
+        try:
+            # Clean response - remove markdown code blocks if present
+            clean_response = response.strip()
+            if clean_response.startswith("```"):
+                clean_response = re.sub(r'^```(?:json)?\n?', '', clean_response)
+                clean_response = re.sub(r'\n?```$', '', clean_response)
+            
+            data = json.loads(clean_response)
+            
+            return BillScanResponse(
+                success=True,
+                title=data.get("title"),
+                amount=float(data["amount"]) if data.get("amount") else None,
+                due_date=data.get("due_date"),
+                category=data.get("category"),
+                raw_text=response
+            )
+        except json.JSONDecodeError:
+            return BillScanResponse(
+                success=False,
+                raw_text=response,
+                error="Fatura bilgileri okunamadı. Lütfen daha net bir fotoğraf çekin."
+            )
+            
+    except Exception as e:
+        logger.error(f"OCR error: {e}")
+        return BillScanResponse(
+            success=False,
+            error=f"Fatura taraması başarısız: {str(e)}"
+        )
+
 # ============== HEALTH CHECK ==============
 
 @api_router.get("/")
