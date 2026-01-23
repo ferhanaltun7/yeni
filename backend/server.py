@@ -462,22 +462,47 @@ async def get_dashboard_stats(current_user: User = Depends(get_current_user)):
 
 # ============== CATEGORIES ==============
 
-CATEGORIES = [
-    {"id": "electricity", "name": "Elektrik", "icon": "flash"},
-    {"id": "water", "name": "Su", "icon": "water"},
-    {"id": "internet", "name": "İnternet", "icon": "wifi"},
-    {"id": "phone", "name": "Telefon", "icon": "call"},
-    {"id": "market", "name": "Market", "icon": "cart"},
-    {"id": "subscriptions", "name": "Abonelikler", "icon": "card"},
-    {"id": "rent", "name": "Kira", "icon": "home"},
-    {"id": "gas", "name": "Doğalgaz", "icon": "flame"},
-    {"id": "other", "name": "Diğer", "icon": "ellipsis-horizontal"}
+# Grouped categories structure
+CATEGORY_GROUPS = [
+    {
+        "id": "bills",
+        "name": "Faturalar",
+        "icon": "receipt",
+        "subcategories": [
+            {"id": "electricity", "name": "Elektrik", "icon": "flash"},
+            {"id": "water", "name": "Su", "icon": "water"},
+            {"id": "internet", "name": "İnternet", "icon": "wifi"},
+            {"id": "gas", "name": "Doğalgaz", "icon": "flame"},
+            {"id": "phone", "name": "Telefon", "icon": "call"},
+        ]
+    },
+    {
+        "id": "expenses",
+        "name": "Giderler",
+        "icon": "wallet",
+        "subcategories": [
+            {"id": "rent", "name": "Kira", "icon": "home"},
+            {"id": "market", "name": "Market", "icon": "cart"},
+            {"id": "subscriptions", "name": "Abonelikler", "icon": "card"},
+        ]
+    }
 ]
+
+# Flat categories for backward compatibility
+CATEGORIES = []
+for group in CATEGORY_GROUPS:
+    for sub in group["subcategories"]:
+        CATEGORIES.append({**sub, "group_id": group["id"], "group_name": group["name"]})
 
 @api_router.get("/categories")
 async def get_categories():
-    """Get bill categories"""
+    """Get bill categories (flat list)"""
     return CATEGORIES
+
+@api_router.get("/category-groups")
+async def get_category_groups():
+    """Get bill categories grouped"""
+    return CATEGORY_GROUPS
 
 # ============== HEALTH CHECK ==============
 
