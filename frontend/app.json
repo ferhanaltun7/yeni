@@ -12,7 +12,9 @@
       "supportsTablet": true,
       "bundleIdentifier": "com.butceasistani.app",
       "infoPlist": {
-        "NSCalendarsUsageDescription": "Fatura hatırlatıcılarını takvime eklemek için"
+        "NSCalendarsUsageDescription": "Fatura hatırlatıcılarını takvime eklemek için",
+        "NSCameraUsageDescription": "Fatura fotoğrafı çekmek için kamera kullanılır",
+        "NSPhotoLibraryUsageDescription": "Fatura fotoğrafı seçmek için galeri kullanılır"
       }
     },
     "android": {
@@ -25,7 +27,9 @@
       "permissions": [
         "RECEIVE_BOOT_COMPLETED",
         "VIBRATE",
-        "SCHEDULE_EXACT_ALARM"
+        "SCHEDULE_EXACT_ALARM",
+        "CAMERA",
+        "READ_EXTERNAL_STORAGE"
       ]
     },
     "web": {
