@@ -534,14 +534,27 @@ async def scan_bill(
         raise HTTPException(status_code=500, detail="OCR servisi yapılandırılmamış")
     
     try:
-        from emergentintegrations.llm.chat import LlmChat, UserMessage, FileContent
+        import openai
         
-        # Initialize chat with Gemini model (supports images better)
-        chat = LlmChat(
+        # Configure OpenAI client with Emergent endpoint
+        client = openai.OpenAI(
             api_key=EMERGENT_LLM_KEY,
-            session_id=f"ocr_{current_user.user_id}_{uuid.uuid4().hex[:8]}",
-            system_message="""Sen bir fatura analiz asistanısın. Türkçe fatura görsellerini analiz edip bilgileri çıkarıyorsun.
-            
+            base_url="https://llm.emergentagi.com/v1"
+        )
+        
+        # Prepare image data
+        image_base64 = request.image_base64
+        if image_base64.startswith("data:"):
+            image_base64 = image_base64.split(",")[1]
+        
+        # Create the message with image
+        response = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[
+                {
+                    "role": "system",
+                    "content": """Sen bir fatura analiz asistanısın. Türkçe fatura görsellerini analiz edip bilgileri çıkarıyorsun.
+
 Görseldeki faturadan şu bilgileri çıkar:
 1. Fatura başlığı/türü (örn: Elektrik Faturası, Su Faturası, vb.)
 2. Ödenecek tutar (TL cinsinden, sadece sayı)
@@ -552,31 +565,32 @@ Yanıtını SADECE JSON formatında ver, başka bir şey yazma:
 {"title": "...", "amount": 123.45, "due_date": "2025-01-20", "category": "..."}
 
 Eğer bir bilgiyi bulamazsan o alan için null yaz."""
-        ).with_model("google", "gemini-1.5-flash")
-        
-        # Create file content for image - use data URL format
-        image_base64 = request.image_base64
-        # Remove data URL prefix if present
-        if image_base64.startswith("data:"):
-            image_base64 = image_base64.split(",")[1]
-        
-        file_content = FileContent(
-            content_type="image/jpeg",
-            file_content_base64=image_base64
+                },
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": "Bu fatura görselini analiz et ve bilgileri JSON formatında çıkar."
+                        },
+                        {
+                            "type": "image_url",
+                            "image_url": {
+                                "url": f"data:image/jpeg;base64,{image_base64}"
+                            }
+                        }
+                    ]
+                }
+            ],
+            max_tokens=500
         )
         
-        # Send message with image
-        user_message = UserMessage(
-            text="Bu fatura görselini analiz et ve bilgileri JSON formatında çıkar.",
-            file_contents=[file_content]
-        )
-        
-        response = await chat.send_message(user_message)
+        result_text = response.choices[0].message.content
         
         # Parse JSON response
         try:
             # Clean response - remove markdown code blocks if present
-            clean_response = response.strip()
+            clean_response = result_text.strip()
             if clean_response.startswith("```"):
                 clean_response = re.sub(r'^```(?:json)?\n?', '', clean_response)
                 clean_response = re.sub(r'\n?```$', '', clean_response)
@@ -589,12 +603,12 @@ Eğer bir bilgiyi bulamazsan o alan için null yaz."""
                 amount=float(data["amount"]) if data.get("amount") else None,
                 due_date=data.get("due_date"),
                 category=data.get("category"),
-                raw_text=response
+                raw_text=result_text
             )
         except json.JSONDecodeError:
             return BillScanResponse(
                 success=False,
-                raw_text=response,
+                raw_text=result_text,
                 error="Fatura bilgileri okunamadı. Lütfen daha net bir fotoğraf çekin."
             )
             
