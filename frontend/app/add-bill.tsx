@@ -166,27 +166,21 @@ export default function AddBill() {
           showsVerticalScrollIndicator={false}
           contentContainerStyle={styles.scrollContent}
         >
-          {/* Scan Button */}
-          <TouchableOpacity
-            style={styles.scanButton}
-            onPress={showScanOptions}
-            disabled={scanning}
-          >
-            {scanning ? (
-              <ActivityIndicator color={COLORS.primary} />
-            ) : (
-              <Ionicons name="scan" size={24} color={COLORS.primary} />
-            )}
+          {/* Scan Button - Coming Soon */}
+          <View style={styles.scanButton}>
+            <Ionicons name="scan" size={24} color={COLORS.textSecondary} />
             <View style={styles.scanTextContainer}>
-              <Text style={styles.scanButtonText}>
-                {scanning ? 'Fatura Taranıyor...' : 'Fatura Fotoğrafı ile Ekle'}
+              <Text style={styles.scanButtonTextDisabled}>
+                Fatura Fotoğrafı ile Ekle
               </Text>
               <Text style={styles.scanButtonSubtext}>
-                AI ile otomatik bilgi çıkarma
+                Yakında - AI ile otomatik bilgi çıkarma
               </Text>
             </View>
-            <Ionicons name="chevron-forward" size={20} color={COLORS.textSecondary} />
-          </TouchableOpacity>
+            <View style={styles.comingSoonBadge}>
+              <Text style={styles.comingSoonText}>Yakında</Text>
+            </View>
+          </View>
 
           {scannedImage && (
             <View style={styles.scannedImageContainer}>
