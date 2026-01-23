@@ -9,14 +9,16 @@ import {
   KeyboardAvoidingView,
   Platform,
   Alert,
+  ActivityIndicator,
+  Image,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import DateTimePicker from '@react-native-community/datetimepicker';
-import { billsAPI, categoriesAPI } from '../src/services/api';
-import { COLORS, CATEGORY_COLORS, CATEGORY_ICONS } from '../src/utils/constants';
-import { Category } from '../src/types';
+import * as ImagePicker from 'expo-image-picker';
+import { billsAPI, ocrAPI } from '../src/services/api';
+import { COLORS, CATEGORY_COLORS, CATEGORY_ICONS, CATEGORY_NAMES, CATEGORY_GROUPS } from '../src/utils/constants';
 
 export default function AddBill() {
   const router = useRouter();
@@ -24,29 +26,102 @@ export default function AddBill() {
   const [amount, setAmount] = useState('');
   const [dueDate, setDueDate] = useState(new Date());
   const [showDatePicker, setShowDatePicker] = useState(false);
-  const [category, setCategory] = useState('other');
+  const [category, setCategory] = useState('electricity');
   const [notes, setNotes] = useState('');
-  const [categories, setCategories] = useState<Category[]>([]);
   const [submitting, setSubmitting] = useState(false);
-
-  useEffect(() => {
-    loadCategories();
-  }, []);
-
-  const loadCategories = async () => {
-    try {
-      const data = await categoriesAPI.getAll();
-      setCategories(data);
-    } catch (error) {
-      console.error('Load categories error:', error);
-    }
-  };
+  const [scanning, setScanning] = useState(false);
+  const [scannedImage, setScannedImage] = useState<string | null>(null);
 
   const handleDateChange = (event: any, selectedDate?: Date) => {
     setShowDatePicker(Platform.OS === 'ios');
     if (selectedDate) {
       setDueDate(selectedDate);
     }
+  };
+
+  const pickImage = async () => {
+    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (status !== 'granted') {
+      Alert.alert('İzin Gerekli', 'Fotoğraf seçmek için galeri izni gerekiyor.');
+      return;
+    }
+
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      allowsEditing: true,
+      quality: 0.8,
+      base64: true,
+    });
+
+    if (!result.canceled && result.assets[0].base64) {
+      await scanBillImage(result.assets[0].base64, result.assets[0].uri);
+    }
+  };
+
+  const takePhoto = async () => {
+    const { status } = await ImagePicker.requestCameraPermissionsAsync();
+    if (status !== 'granted') {
+      Alert.alert('İzin Gerekli', 'Fotoğraf çekmek için kamera izni gerekiyor.');
+      return;
+    }
+
+    const result = await ImagePicker.launchCameraAsync({
+      allowsEditing: true,
+      quality: 0.8,
+      base64: true,
+    });
+
+    if (!result.canceled && result.assets[0].base64) {
+      await scanBillImage(result.assets[0].base64, result.assets[0].uri);
+    }
+  };
+
+  const scanBillImage = async (base64: string, uri: string) => {
+    setScanning(true);
+    setScannedImage(uri);
+
+    try {
+      const result = await ocrAPI.scanBill(base64);
+
+      if (result.success) {
+        if (result.title) setTitle(result.title);
+        if (result.amount) setAmount(result.amount.toString());
+        if (result.due_date) {
+          try {
+            const date = new Date(result.due_date);
+            if (!isNaN(date.getTime())) {
+              setDueDate(date);
+            }
+          } catch (e) {
+            console.log('Date parse error:', e);
+          }
+        }
+        if (result.category && CATEGORY_NAMES[result.category]) {
+          setCategory(result.category);
+        }
+
+        Alert.alert('Başarılı', 'Fatura bilgileri otomatik olarak dolduruldu. Lütfen kontrol edin.');
+      } else {
+        Alert.alert('Uyarı', result.error || 'Fatura okunamadı. Lütfen manuel olarak doldurun.');
+      }
+    } catch (error) {
+      console.error('Scan error:', error);
+      Alert.alert('Hata', 'Fatura taraması başarısız oldu.');
+    } finally {
+      setScanning(false);
+    }
+  };
+
+  const showScanOptions = () => {
+    Alert.alert(
+      'Fatura Tara',
+      'Fatura fotoğrafı nasıl eklemek istersiniz?',
+      [
+        { text: 'İptal', style: 'cancel' },
+        { text: 'Galeriden Seç', onPress: pickImage },
+        { text: 'Fotoğraf Çek', onPress: takePhoto },
+      ]
+    );
   };
 
   const handleSubmit = async () => {
@@ -91,6 +166,40 @@ export default function AddBill() {
           showsVerticalScrollIndicator={false}
           contentContainerStyle={styles.scrollContent}
         >
+          {/* Scan Button */}
+          <TouchableOpacity
+            style={styles.scanButton}
+            onPress={showScanOptions}
+            disabled={scanning}
+          >
+            {scanning ? (
+              <ActivityIndicator color={COLORS.primary} />
+            ) : (
+              <Ionicons name="scan" size={24} color={COLORS.primary} />
+            )}
+            <View style={styles.scanTextContainer}>
+              <Text style={styles.scanButtonText}>
+                {scanning ? 'Fatura Taranıyor...' : 'Fatura Fotoğrafı ile Ekle'}
+              </Text>
+              <Text style={styles.scanButtonSubtext}>
+                AI ile otomatik bilgi çıkarma
+              </Text>
+            </View>
+            <Ionicons name="chevron-forward" size={20} color={COLORS.textSecondary} />
+          </TouchableOpacity>
+
+          {scannedImage && (
+            <View style={styles.scannedImageContainer}>
+              <Image source={{ uri: scannedImage }} style={styles.scannedImage} />
+            </View>
+          )}
+
+          <View style={styles.dividerContainer}>
+            <View style={styles.divider} />
+            <Text style={styles.dividerText}>veya manuel girin</Text>
+            <View style={styles.divider} />
+          </View>
+
           {/* Title */}
           <View style={styles.inputGroup}>
             <Text style={styles.label}>Fatura Adı *</Text>
@@ -143,51 +252,58 @@ export default function AddBill() {
                 mode="date"
                 display={Platform.OS === 'ios' ? 'spinner' : 'default'}
                 onChange={handleDateChange}
-                minimumDate={new Date()}
                 locale="tr-TR"
               />
             )}
           </View>
 
-          {/* Category */}
+          {/* Category - Grouped */}
           <View style={styles.inputGroup}>
             <Text style={styles.label}>Kategori</Text>
-            <View style={styles.categoryGrid}>
-              {categories.map((cat) => (
-                <TouchableOpacity
-                  key={cat.id}
-                  style={[
-                    styles.categoryButton,
-                    category === cat.id && styles.categoryButtonActive,
-                    category === cat.id && {
-                      backgroundColor: CATEGORY_COLORS[cat.id] + '20',
-                      borderColor: CATEGORY_COLORS[cat.id],
-                    },
-                  ]}
-                  onPress={() => setCategory(cat.id)}
-                >
-                  <Ionicons
-                    name={CATEGORY_ICONS[cat.id] as any || 'ellipsis-horizontal'}
-                    size={20}
-                    color={
-                      category === cat.id
-                        ? CATEGORY_COLORS[cat.id]
-                        : COLORS.textSecondary
-                    }
-                  />
-                  <Text
-                    style={[
-                      styles.categoryText,
-                      category === cat.id && {
-                        color: CATEGORY_COLORS[cat.id],
-                      },
-                    ]}
-                  >
-                    {cat.name}
-                  </Text>
-                </TouchableOpacity>
-              ))}
-            </View>
+            {CATEGORY_GROUPS.map((group) => (
+              <View key={group.id} style={styles.categoryGroup}>
+                <View style={styles.categoryGroupHeader}>
+                  <Ionicons name={group.icon as any} size={18} color={COLORS.textSecondary} />
+                  <Text style={styles.categoryGroupTitle}>{group.name}</Text>
+                </View>
+                <View style={styles.categoryGrid}>
+                  {group.subcategories.map((catId) => (
+                    <TouchableOpacity
+                      key={catId}
+                      style={[
+                        styles.categoryButton,
+                        category === catId && styles.categoryButtonActive,
+                        category === catId && {
+                          backgroundColor: CATEGORY_COLORS[catId] + '20',
+                          borderColor: CATEGORY_COLORS[catId],
+                        },
+                      ]}
+                      onPress={() => setCategory(catId)}
+                    >
+                      <Ionicons
+                        name={CATEGORY_ICONS[catId] as any}
+                        size={18}
+                        color={
+                          category === catId
+                            ? CATEGORY_COLORS[catId]
+                            : COLORS.textSecondary
+                        }
+                      />
+                      <Text
+                        style={[
+                          styles.categoryText,
+                          category === catId && {
+                            color: CATEGORY_COLORS[catId],
+                          },
+                        ]}
+                      >
+                        {CATEGORY_NAMES[catId]}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              </View>
+            ))}
           </View>
 
           {/* Notes */}
@@ -243,8 +359,58 @@ const styles = StyleSheet.create({
   scrollContent: {
     padding: 20,
   },
+  scanButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: COLORS.primary + '10',
+    borderRadius: 16,
+    padding: 16,
+    marginBottom: 20,
+    borderWidth: 2,
+    borderColor: COLORS.primary + '30',
+    borderStyle: 'dashed',
+  },
+  scanTextContainer: {
+    flex: 1,
+    marginLeft: 12,
+  },
+  scanButtonText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: COLORS.primary,
+  },
+  scanButtonSubtext: {
+    fontSize: 12,
+    color: COLORS.textSecondary,
+    marginTop: 2,
+  },
+  scannedImageContainer: {
+    marginBottom: 16,
+    borderRadius: 12,
+    overflow: 'hidden',
+  },
+  scannedImage: {
+    width: '100%',
+    height: 150,
+    resizeMode: 'cover',
+  },
+  dividerContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 20,
+  },
+  divider: {
+    flex: 1,
+    height: 1,
+    backgroundColor: COLORS.border,
+  },
+  dividerText: {
+    marginHorizontal: 12,
+    fontSize: 12,
+    color: COLORS.textSecondary,
+  },
   inputGroup: {
-    marginBottom: 24,
+    marginBottom: 20,
   },
   label: {
     fontSize: 14,
@@ -293,6 +459,22 @@ const styles = StyleSheet.create({
   dateText: {
     fontSize: 16,
     color: COLORS.text,
+  },
+  categoryGroup: {
+    marginBottom: 16,
+  },
+  categoryGroupHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 10,
+    gap: 6,
+  },
+  categoryGroupTitle: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: COLORS.textSecondary,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
   },
   categoryGrid: {
     flexDirection: 'row',
