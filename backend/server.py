@@ -552,7 +552,7 @@ Yanıtını SADECE JSON formatında ver, başka bir şey yazma:
 {"title": "...", "amount": 123.45, "due_date": "2025-01-20", "category": "..."}
 
 Eğer bir bilgiyi bulamazsan o alan için null yaz."""
-        ).with_model("google", "gemini-2.0-flash")
+        ).with_model("google", "gemini-1.5-flash")
         
         # Create file content for image - use data URL format
         image_base64 = request.image_base64
