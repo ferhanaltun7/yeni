@@ -113,13 +113,13 @@ export default function Bills() {
       {filteredBills.length === 0 ? (
         <EmptyState
           icon="document-text-outline"
-          title={filter === 'all' ? 'Henüz fatura yok' : 'Fatura bulunamadı'}
+          title={filter === 'all' ? 'Henüz gider yok' : 'Gider bulunamadı'}
           message={
             filter === 'all'
-              ? 'İlk faturanızı ekleyerek bütçenizi takip etmeye başlayın.'
-              : 'Bu kategoride fatura bulunmuyor.'
+              ? 'İlk giderinizi ekleyerek bütçenizi takip etmeye başlayın.'
+              : 'Bu kategoride gider bulunmuyor.'
           }
-          actionLabel={filter === 'all' ? 'Fatura Ekle' : undefined}
+          actionLabel={filter === 'all' ? 'Gider Ekle' : undefined}
           onAction={filter === 'all' ? () => router.push('/add-bill') : undefined}
         />
       ) : (
