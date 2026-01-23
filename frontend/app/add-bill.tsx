@@ -332,7 +332,7 @@ export default function AddBill() {
             ) : (
               <>
                 <Ionicons name="add-circle" size={24} color="#fff" />
-                <Text style={styles.submitButtonText}>Fatura Ekle</Text>
+                <Text style={styles.submitButtonText}>Gider Ekle</Text>
               </>
             )}
           </TouchableOpacity>
