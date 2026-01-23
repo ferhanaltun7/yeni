@@ -23,7 +23,7 @@ export default function RootLayout() {
           options={{
             presentation: 'modal',
             headerShown: true,
-            headerTitle: 'Yeni Fatura Ekle',
+            headerTitle: 'Yeni Gider Ekle',
             headerStyle: { backgroundColor: COLORS.surface },
             headerTitleStyle: { color: COLORS.text },
           }}
@@ -32,7 +32,7 @@ export default function RootLayout() {
           name="bill-details"
           options={{
             headerShown: true,
-            headerTitle: 'Fatura Detayı',
+            headerTitle: 'Gider Detayı',
             headerStyle: { backgroundColor: COLORS.surface },
             headerTitleStyle: { color: COLORS.text },
           }}
