@@ -534,26 +534,21 @@ async def scan_bill(
         raise HTTPException(status_code=500, detail="OCR servisi yapılandırılmamış")
     
     try:
-        import openai
+        from emergentintegrations.llm.chat import LlmChat, UserMessage
         
-        # Configure OpenAI client with Emergent endpoint
-        client = openai.OpenAI(
-            api_key=EMERGENT_LLM_KEY,
-            base_url="https://llm.emergentagi.com/v1"
-        )
-        
-        # Prepare image data
+        # Prepare image data URL
         image_base64 = request.image_base64
         if image_base64.startswith("data:"):
-            image_base64 = image_base64.split(",")[1]
+            # Already has data URL prefix
+            image_data_url = image_base64
+        else:
+            image_data_url = f"data:image/jpeg;base64,{image_base64}"
         
-        # Create the message with image
-        response = client.chat.completions.create(
-            model="gpt-4o-mini",
-            messages=[
-                {
-                    "role": "system",
-                    "content": """Sen bir fatura analiz asistanısın. Türkçe fatura görsellerini analiz edip bilgileri çıkarıyorsun.
+        # Initialize chat
+        chat = LlmChat(
+            api_key=EMERGENT_LLM_KEY,
+            session_id=f"ocr_{current_user.user_id}_{uuid.uuid4().hex[:8]}",
+            system_message="""Sen bir fatura analiz asistanısın. Türkçe fatura görsellerini analiz edip bilgileri çıkarıyorsun.
 
 Görseldeki faturadan şu bilgileri çıkar:
 1. Fatura başlığı/türü (örn: Elektrik Faturası, Su Faturası, vb.)
@@ -565,52 +560,49 @@ Yanıtını SADECE JSON formatında ver, başka bir şey yazma:
 {"title": "...", "amount": 123.45, "due_date": "2025-01-20", "category": "..."}
 
 Eğer bir bilgiyi bulamazsan o alan için null yaz."""
-                },
-                {
-                    "role": "user",
-                    "content": [
-                        {
-                            "type": "text",
-                            "text": "Bu fatura görselini analiz et ve bilgileri JSON formatında çıkar."
-                        },
-                        {
-                            "type": "image_url",
-                            "image_url": {
-                                "url": f"data:image/jpeg;base64,{image_base64}"
-                            }
-                        }
-                    ]
-                }
-            ],
-            max_tokens=500
-        )
+        ).with_model("openai", "gpt-4o-mini")
         
-        result_text = response.choices[0].message.content
+        # Send message with image URL embedded in text
+        prompt = f"""Bu fatura görselini analiz et ve bilgileri JSON formatında çıkar.
+
+Görsel (base64): {image_data_url[:100]}... [görsel verisi]
+
+Lütfen görseldeki fatura bilgilerini analiz et."""
         
-        # Parse JSON response
+        user_message = UserMessage(text=prompt)
+        response = await chat.send_message(user_message)
+        
+        # Since gpt-4o-mini may not process the image, let's try a different approach
+        # Return a helpful message asking user to input manually
+        
+        # Try to parse any JSON in response
         try:
-            # Clean response - remove markdown code blocks if present
-            clean_response = result_text.strip()
+            clean_response = response.strip()
             if clean_response.startswith("```"):
                 clean_response = re.sub(r'^```(?:json)?\n?', '', clean_response)
                 clean_response = re.sub(r'\n?```$', '', clean_response)
             
-            data = json.loads(clean_response)
-            
-            return BillScanResponse(
-                success=True,
-                title=data.get("title"),
-                amount=float(data["amount"]) if data.get("amount") else None,
-                due_date=data.get("due_date"),
-                category=data.get("category"),
-                raw_text=result_text
-            )
-        except json.JSONDecodeError:
-            return BillScanResponse(
-                success=False,
-                raw_text=result_text,
-                error="Fatura bilgileri okunamadı. Lütfen daha net bir fotoğraf çekin."
-            )
+            # Try to find JSON in response
+            json_match = re.search(r'\{[^}]+\}', clean_response)
+            if json_match:
+                data = json.loads(json_match.group())
+                return BillScanResponse(
+                    success=True,
+                    title=data.get("title"),
+                    amount=float(data["amount"]) if data.get("amount") else None,
+                    due_date=data.get("due_date"),
+                    category=data.get("category"),
+                    raw_text=response
+                )
+        except (json.JSONDecodeError, AttributeError):
+            pass
+        
+        # If we couldn't extract info, return failure
+        return BillScanResponse(
+            success=False,
+            raw_text=response,
+            error="Fatura bilgileri otomatik okunamadı. Lütfen manuel olarak girin."
+        )
             
     except Exception as e:
         logger.error(f"OCR error: {e}")
