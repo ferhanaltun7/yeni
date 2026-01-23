@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import {
   View,
   Text,
@@ -16,8 +16,8 @@ import { useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import DateTimePicker from '@react-native-community/datetimepicker';
-import * as ImagePicker from 'expo-image-picker';
-import { billsAPI, ocrAPI } from '../src/services/api';
+import { billsAPI } from '../src/services/api';
+import { scanBill, scanBillFromGallery, BillScanResult } from '../src/services/ocrService';
 import { COLORS, CATEGORY_COLORS, CATEGORY_ICONS, CATEGORY_NAMES, CATEGORY_GROUPS } from '../src/utils/constants';
 
 export default function AddBill() {
@@ -30,7 +30,8 @@ export default function AddBill() {
   const [notes, setNotes] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [scanning, setScanning] = useState(false);
-  const [scannedImage, setScannedImage] = useState<string | null>(null);
+  const [rawOcrText, setRawOcrText] = useState<string | null>(null);
+  const [showRawText, setShowRawText] = useState(false);
 
   const handleDateChange = (event: any, selectedDate?: Date) => {
     setShowDatePicker(Platform.OS === 'ios');
@@ -39,74 +40,59 @@ export default function AddBill() {
     }
   };
 
-  const pickImage = async () => {
-    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (status !== 'granted') {
-      Alert.alert('İzin Gerekli', 'Fotoğraf seçmek için galeri izni gerekiyor.');
-      return;
+  const handleScanResult = (result: BillScanResult) => {
+    if (result.rawText) {
+      setRawOcrText(result.rawText);
     }
 
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
-      allowsEditing: true,
-      quality: 0.8,
-      base64: true,
-    });
+    if (result.success) {
+      // Auto-fill form fields
+      if (result.amount) {
+        setAmount(result.amount);
+      }
+      if (result.dueDate) {
+        try {
+          const parsedDate = new Date(result.dueDate);
+          if (!isNaN(parsedDate.getTime())) {
+            setDueDate(parsedDate);
+          }
+        } catch (e) {
+          console.log('Date parse error:', e);
+        }
+      }
+      if (result.category && CATEGORY_NAMES[result.category]) {
+        setCategory(result.category);
+        // Auto-fill title based on category
+        const categoryName = CATEGORY_NAMES[result.category];
+        if (!title) {
+          setTitle(`${categoryName} Faturası`);
+        }
+      }
 
-    if (!result.canceled && result.assets[0].base64) {
-      await scanBillImage(result.assets[0].base64, result.assets[0].uri);
+      if (result.amount || result.dueDate || result.category) {
+        Alert.alert(
+          'Tarama Başarılı',
+          'Fatura bilgileri otomatik dolduruldu. Lütfen kontrol edin ve gerekirse düzenleyin.',
+          [{ text: 'Tamam' }]
+        );
+      } else if (result.error) {
+        Alert.alert('Uyarı', result.error);
+      }
+    } else {
+      Alert.alert('Hata', result.error || 'Fatura taraması başarısız oldu.');
     }
   };
 
-  const takePhoto = async () => {
-    const { status } = await ImagePicker.requestCameraPermissionsAsync();
-    if (status !== 'granted') {
-      Alert.alert('İzin Gerekli', 'Fotoğraf çekmek için kamera izni gerekiyor.');
-      return;
-    }
-
-    const result = await ImagePicker.launchCameraAsync({
-      allowsEditing: true,
-      quality: 0.8,
-      base64: true,
-    });
-
-    if (!result.canceled && result.assets[0].base64) {
-      await scanBillImage(result.assets[0].base64, result.assets[0].uri);
-    }
-  };
-
-  const scanBillImage = async (base64: string, uri: string) => {
+  const handleScanBill = async (useCamera: boolean) => {
     setScanning(true);
-    setScannedImage(uri);
+    setRawOcrText(null);
 
     try {
-      const result = await ocrAPI.scanBill(base64);
-
-      if (result.success) {
-        if (result.title) setTitle(result.title);
-        if (result.amount) setAmount(result.amount.toString());
-        if (result.due_date) {
-          try {
-            const date = new Date(result.due_date);
-            if (!isNaN(date.getTime())) {
-              setDueDate(date);
-            }
-          } catch (e) {
-            console.log('Date parse error:', e);
-          }
-        }
-        if (result.category && CATEGORY_NAMES[result.category]) {
-          setCategory(result.category);
-        }
-
-        Alert.alert('Başarılı', 'Fatura bilgileri otomatik olarak dolduruldu. Lütfen kontrol edin.');
-      } else {
-        Alert.alert('Uyarı', result.error || 'Fatura okunamadı. Lütfen manuel olarak doldurun.');
-      }
+      const result = useCamera ? await scanBill(true) : await scanBillFromGallery();
+      handleScanResult(result);
     } catch (error) {
       console.error('Scan error:', error);
-      Alert.alert('Hata', 'Fatura taraması başarısız oldu.');
+      Alert.alert('Hata', 'Fatura taraması sırasında bir hata oluştu.');
     } finally {
       setScanning(false);
     }
@@ -114,19 +100,19 @@ export default function AddBill() {
 
   const showScanOptions = () => {
     Alert.alert(
-      'Fatura Tara',
-      'Fatura fotoğrafı nasıl eklemek istersiniz?',
+      'Faturayı Tara',
+      'Fatura fotoğrafını nasıl eklemek istersiniz?',
       [
         { text: 'İptal', style: 'cancel' },
-        { text: 'Galeriden Seç', onPress: pickImage },
-        { text: 'Fotoğraf Çek', onPress: takePhoto },
+        { text: 'Galeriden Seç', onPress: () => handleScanBill(false) },
+        { text: 'Fotoğraf Çek', onPress: () => handleScanBill(true) },
       ]
     );
   };
 
   const handleSubmit = async () => {
     if (!title.trim()) {
-      Alert.alert('Hata', 'Lütfen fatura adı girin');
+      Alert.alert('Hata', 'Lütfen gider adı girin');
       return;
     }
     if (!amount || parseFloat(amount) <= 0) {
@@ -145,12 +131,12 @@ export default function AddBill() {
         notes: notes.trim() || undefined,
       });
 
-      Alert.alert('Başarılı', 'Fatura eklendi!', [
+      Alert.alert('Başarılı', 'Gider eklendi!', [
         { text: 'Tamam', onPress: () => router.back() },
       ]);
     } catch (error) {
       console.error('Add bill error:', error);
-      Alert.alert('Hata', 'Fatura eklenirken bir hata oluştu');
+      Alert.alert('Hata', 'Gider eklenirken bir hata oluştu');
     } finally {
       setSubmitting(false);
     }
@@ -166,25 +152,52 @@ export default function AddBill() {
           showsVerticalScrollIndicator={false}
           contentContainerStyle={styles.scrollContent}
         >
-          {/* Scan Button - Coming Soon */}
-          <View style={styles.scanButton}>
-            <Ionicons name="scan" size={24} color={COLORS.textSecondary} />
+          {/* Scan Button */}
+          <TouchableOpacity
+            style={[styles.scanButton, scanning && styles.scanButtonActive]}
+            onPress={showScanOptions}
+            disabled={scanning}
+          >
+            {scanning ? (
+              <ActivityIndicator color={COLORS.primary} size="small" />
+            ) : (
+              <Ionicons name="scan" size={24} color={COLORS.primary} />
+            )}
             <View style={styles.scanTextContainer}>
-              <Text style={styles.scanButtonTextDisabled}>
-                Fatura Fotoğrafı ile Ekle
+              <Text style={styles.scanButtonText}>
+                {scanning ? 'Fatura Taranıyor...' : 'Faturayı Tara'}
               </Text>
               <Text style={styles.scanButtonSubtext}>
-                Yakında - AI ile otomatik bilgi çıkarma
+                {scanning ? 'Lütfen bekleyin' : 'Kamera ile otomatik bilgi çıkarma'}
               </Text>
             </View>
-            <View style={styles.comingSoonBadge}>
-              <Text style={styles.comingSoonText}>Yakında</Text>
-            </View>
-          </View>
+            {!scanning && (
+              <Ionicons name="chevron-forward" size={20} color={COLORS.textSecondary} />
+            )}
+          </TouchableOpacity>
 
-          {scannedImage && (
-            <View style={styles.scannedImageContainer}>
-              <Image source={{ uri: scannedImage }} style={styles.scannedImage} />
+          {/* Raw OCR Text Preview */}
+          {rawOcrText && (
+            <View style={styles.rawTextContainer}>
+              <TouchableOpacity
+                style={styles.rawTextHeader}
+                onPress={() => setShowRawText(!showRawText)}
+              >
+                <View style={styles.rawTextHeaderLeft}>
+                  <Ionicons name="document-text-outline" size={18} color={COLORS.textSecondary} />
+                  <Text style={styles.rawTextTitle}>Taranan Metin</Text>
+                </View>
+                <Ionicons
+                  name={showRawText ? 'chevron-up' : 'chevron-down'}
+                  size={18}
+                  color={COLORS.textSecondary}
+                />
+              </TouchableOpacity>
+              {showRawText && (
+                <Text style={styles.rawTextContent} numberOfLines={10}>
+                  {rawOcrText}
+                </Text>
+              )}
             </View>
           )}
 
@@ -359,26 +372,14 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.primary + '10',
     borderRadius: 16,
     padding: 16,
-    marginBottom: 20,
+    marginBottom: 16,
     borderWidth: 2,
     borderColor: COLORS.primary + '30',
     borderStyle: 'dashed',
   },
-  scanButtonTextDisabled: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: COLORS.textSecondary,
-  },
-  comingSoonBadge: {
-    backgroundColor: COLORS.warning + '20',
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 8,
-  },
-  comingSoonText: {
-    fontSize: 10,
-    fontWeight: '600',
-    color: COLORS.warning,
+  scanButtonActive: {
+    borderColor: COLORS.primary,
+    backgroundColor: COLORS.primary + '15',
   },
   scanTextContainer: {
     flex: 1,
@@ -394,15 +395,37 @@ const styles = StyleSheet.create({
     color: COLORS.textSecondary,
     marginTop: 2,
   },
-  scannedImageContainer: {
-    marginBottom: 16,
+  rawTextContainer: {
+    backgroundColor: COLORS.surface,
     borderRadius: 12,
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: COLORS.border,
     overflow: 'hidden',
   },
-  scannedImage: {
-    width: '100%',
-    height: 150,
-    resizeMode: 'cover',
+  rawTextHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    padding: 12,
+    backgroundColor: COLORS.background,
+  },
+  rawTextHeaderLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  rawTextTitle: {
+    fontSize: 14,
+    fontWeight: '500',
+    color: COLORS.textSecondary,
+  },
+  rawTextContent: {
+    padding: 12,
+    fontSize: 12,
+    color: COLORS.text,
+    lineHeight: 18,
+    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
   },
   dividerContainer: {
     flexDirection: 'row',
