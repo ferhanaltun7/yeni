@@ -91,6 +91,29 @@ export const categoriesAPI = {
     const response = await api.get('/categories');
     return response.data;
   },
+  
+  getGroups: async (): Promise<any[]> => {
+    const response = await api.get('/category-groups');
+    return response.data;
+  },
+};
+
+// OCR / Bill Scanning API
+export interface BillScanResult {
+  success: boolean;
+  title?: string;
+  amount?: number;
+  due_date?: string;
+  category?: string;
+  raw_text?: string;
+  error?: string;
+}
+
+export const ocrAPI = {
+  scanBill: async (imageBase64: string): Promise<BillScanResult> => {
+    const response = await api.post('/bills/scan', { image_base64: imageBase64 });
+    return response.data;
+  },
 };
 
 export default api;
