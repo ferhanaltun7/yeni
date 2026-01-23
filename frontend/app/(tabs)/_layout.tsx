@@ -42,8 +42,8 @@ export default function TabLayout() {
       <Tabs.Screen
         name="bills"
         options={{
-          title: 'Faturalar',
-          headerTitle: 'Faturalarım',
+          title: 'Giderler',
+          headerTitle: 'Giderlerim',
           tabBarIcon: ({ color, size }) => (
             <Ionicons name="document-text" size={size} color={color} />
           ),
