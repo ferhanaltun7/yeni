@@ -534,7 +534,7 @@ async def scan_bill(
         raise HTTPException(status_code=500, detail="OCR servisi yapılandırılmamış")
     
     try:
-        from emergentintegrations.llm.chat import LlmChat, UserMessage, ImageContent
+        from emergentintegrations.llm.chat import LlmChat, UserMessage, FileContent
         
         # Initialize chat with vision model
         chat = LlmChat(
@@ -554,13 +554,16 @@ Yanıtını SADECE JSON formatında ver, başka bir şey yazma:
 Eğer bir bilgiyi bulamazsan o alan için null yaz."""
         ).with_model("openai", "gpt-4o")
         
-        # Create image content
-        image_content = ImageContent(image_base64=request.image_base64)
+        # Create file content for image
+        file_content = FileContent(
+            content_type="image/jpeg",
+            file_content_base64=request.image_base64
+        )
         
         # Send message with image
         user_message = UserMessage(
             text="Bu fatura görselini analiz et ve bilgileri JSON formatında çıkar.",
-            image_contents=[image_content]
+            file_contents=[file_content]
         )
         
         response = await chat.send_message(user_message)
