@@ -3,36 +3,49 @@ import * as ImageManipulator from 'expo-image-manipulator';
 import axios from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
+// App shared secret - must match backend
+const APP_SHARED_SECRET = 'butce-asistani-secret-2025';
+const API_URL = process.env.EXPO_PUBLIC_BACKEND_URL || '';
+
+// Confidence thresholds
+const HIGH_CONFIDENCE = 0.70;
+const LOW_CONFIDENCE = 0.40;
+
+export interface ParsedField {
+  value: string | null;
+  confidence: number;
+  evidence: string[];
+}
+
+export interface OcrResult {
+  rawText: string;
+  parsed: {
+    biller_name: ParsedField;
+    due_date: ParsedField;
+    amount_due: ParsedField;
+    currency: ParsedField;
+  };
+}
+
 export interface BillScanResult {
   success: boolean;
-  amount?: number;
+  billerName?: string;
   dueDate?: string;
-  category?: string;
-  title?: string;
+  amount?: number;
+  currency?: string;
   rawText?: string;
+  warnings: string[];
   error?: string;
 }
 
-const API_URL = process.env.EXPO_PUBLIC_BACKEND_URL || '';
-
-/**
- * Request permissions
- */
 async function requestPermissions(): Promise<boolean> {
-  const cameraPermission = await ImagePicker.requestCameraPermissionsAsync();
-  const mediaPermission = await ImagePicker.requestMediaLibraryPermissionsAsync();
-  return cameraPermission.granted || mediaPermission.granted;
+  const camera = await ImagePicker.requestCameraPermissionsAsync();
+  const media = await ImagePicker.requestMediaLibraryPermissionsAsync();
+  return camera.granted || media.granted;
 }
 
-/**
- * Pick and compress image
- */
-async function pickAndCompressImage(useCamera: boolean): Promise<string | null> {
-  const hasPermission = await requestPermissions();
-  if (!hasPermission) {
-    console.log('Permissions not granted');
-    return null;
-  }
+async function pickAndCompressImage(useCamera: boolean): Promise<{ base64: string; mimeType: string } | null> {
+  if (!(await requestPermissions())) return null;
 
   const options: ImagePicker.ImagePickerOptions = {
     mediaTypes: ImagePicker.MediaTypeOptions.Images,
@@ -40,117 +53,126 @@ async function pickAndCompressImage(useCamera: boolean): Promise<string | null> 
     quality: 0.8,
   };
 
-  let result;
-  try {
-    result = useCamera 
-      ? await ImagePicker.launchCameraAsync(options)
-      : await ImagePicker.launchImageLibraryAsync(options);
-  } catch (error) {
-    console.error('Image picker error:', error);
-    return null;
-  }
+  const result = useCamera
+    ? await ImagePicker.launchCameraAsync(options)
+    : await ImagePicker.launchImageLibraryAsync(options);
 
-  if (result.canceled || !result.assets[0]) {
-    console.log('Image picking cancelled');
-    return null;
-  }
+  if (result.canceled || !result.assets[0]) return null;
 
-  // Compress and resize image
+  const uri = result.assets[0].uri;
+  const mimeType = uri.toLowerCase().endsWith('.png') ? 'image/png' : 'image/jpeg';
+
   try {
-    console.log('Compressing image...');
     const manipResult = await ImageManipulator.manipulateAsync(
-      result.assets[0].uri,
-      [{ resize: { width: 1200 } }],
-      { compress: 0.7, format: ImageManipulator.SaveFormat.JPEG, base64: true }
+      uri,
+      [{ resize: { width: 1500 } }],
+      { compress: 0.8, format: ImageManipulator.SaveFormat.JPEG, base64: true }
     );
-    console.log('Image compressed, base64 length:', manipResult.base64?.length);
-    return manipResult.base64 || null;
+    return { base64: manipResult.base64 || '', mimeType: 'image/jpeg' };
   } catch (error) {
-    console.error('Image manipulation failed:', error);
+    console.error('Image compression failed:', error);
     return null;
   }
 }
 
-/**
- * Main scan function - sends to backend for Google Vision OCR + AI parsing
- */
 export async function scanBill(useCamera: boolean = true): Promise<BillScanResult> {
+  const warnings: string[] = [];
+
   try {
-    // Step 1: Pick and compress image
-    console.log('Starting bill scan...');
-    const base64Image = await pickAndCompressImage(useCamera);
-    
-    if (!base64Image) {
-      return {
-        success: false,
-        error: 'Fotoğraf seçilemedi veya izin verilmedi.',
-      };
+    // 1. Pick image
+    const image = await pickAndCompressImage(useCamera);
+    if (!image) {
+      return { success: false, warnings, error: 'Fotoğraf seçilemedi veya izin verilmedi.' };
     }
 
-    // Step 2: Send to backend for processing
-    console.log('Sending to backend for OCR + AI processing...');
+    // 2. Call backend OCR endpoint
+    console.log('Calling OCR API...');
     const token = await AsyncStorage.getItem('session_token');
     
-    const response = await axios.post(
-      `${API_URL}/api/bills/scan`,
-      { image_base64: base64Image },
-      { 
-        headers: { 
-          Authorization: `Bearer ${token}`,
-          'Content-Type': 'application/json'
+    const response = await axios.post<OcrResult>(
+      `${API_URL}/api/ocr/bill`,
+      { imageBase64: image.base64, mimeType: image.mimeType },
+      {
+        headers: {
+          'Content-Type': 'application/json',
+          'x-app-secret': APP_SHARED_SECRET,
+          'Authorization': `Bearer ${token}`,
         },
-        timeout: 60000 // 60 second timeout for OCR + AI
+        timeout: 45000,
       }
     );
 
-    console.log('Backend response:', response.data);
+    const { rawText, parsed } = response.data;
+    console.log('OCR Response:', JSON.stringify(parsed, null, 2));
 
-    if (response.data.success) {
-      return {
-        success: true,
-        title: response.data.title,
-        amount: response.data.amount,
-        dueDate: response.data.due_date,
-        category: response.data.category,
-        rawText: response.data.raw_text,
-        error: response.data.error,
-      };
-    } else {
-      return {
-        success: false,
-        rawText: response.data.raw_text,
-        error: response.data.error || 'Tarama başarısız oldu.',
-      };
+    if (!rawText || rawText.length < 10) {
+      return { success: false, warnings, error: 'Faturada metin bulunamadı. Daha net fotoğraf çekin.' };
     }
 
+    // 3. Process results with confidence thresholds
+    let billerName: string | undefined;
+    let dueDate: string | undefined;
+    let amount: number | undefined;
+    let currency: string | undefined;
+
+    // Biller name
+    if (parsed.biller_name.value && parsed.biller_name.confidence >= LOW_CONFIDENCE) {
+      billerName = parsed.biller_name.value;
+      if (parsed.biller_name.confidence < HIGH_CONFIDENCE) {
+        warnings.push(`Kurum adı kontrol edin: "${billerName}"`);
+      }
+    }
+
+    // Due date
+    if (parsed.due_date.value && parsed.due_date.confidence >= LOW_CONFIDENCE) {
+      dueDate = parsed.due_date.value;
+      if (parsed.due_date.confidence < HIGH_CONFIDENCE) {
+        warnings.push('Son ödeme tarihini kontrol edin');
+      }
+    }
+
+    // Amount
+    if (parsed.amount_due.value && parsed.amount_due.confidence >= LOW_CONFIDENCE) {
+      amount = parseFloat(parsed.amount_due.value);
+      if (isNaN(amount)) amount = undefined;
+      if (amount && parsed.amount_due.confidence < HIGH_CONFIDENCE) {
+        warnings.push('Tutarı kontrol edin');
+      }
+    }
+
+    // Currency
+    if (parsed.currency.value) {
+      currency = parsed.currency.value;
+    }
+
+    const hasData = billerName || dueDate || amount;
+
+    return {
+      success: true,
+      billerName,
+      dueDate,
+      amount,
+      currency,
+      rawText: rawText.substring(0, 500),
+      warnings,
+      error: hasData ? undefined : 'Bilgiler tam çıkarılamadı. Lütfen manuel doldurun.',
+    };
+
   } catch (error: any) {
-    console.error('Scan error:', error);
+    console.error('OCR error:', error);
     
-    if (error.response) {
-      console.error('Response error:', error.response.data);
-      return {
-        success: false,
-        error: error.response.data?.detail || 'Sunucu hatası oluştu.',
-      };
+    if (error.response?.status === 401) {
+      return { success: false, warnings, error: 'Yetkilendirme hatası.' };
     }
     
     if (error.code === 'ECONNABORTED') {
-      return {
-        success: false,
-        error: 'İşlem zaman aşımına uğradı. Lütfen tekrar deneyin.',
-      };
+      return { success: false, warnings, error: 'İşlem zaman aşımına uğradı.' };
     }
-    
-    return {
-      success: false,
-      error: 'Fatura taraması başarısız oldu. Lütfen tekrar deneyin.',
-    };
+
+    return { success: false, warnings, error: 'Tarama başarısız. Tekrar deneyin.' };
   }
 }
 
-/**
- * Scan from gallery
- */
 export async function scanBillFromGallery(): Promise<BillScanResult> {
   return scanBill(false);
 }
