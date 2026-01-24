@@ -96,40 +96,83 @@ export default function AddBill() {
   const handleScanResult = (result: BillScanResult) => {
     setWarnings(result.warnings || []);
     
+    // Reset confidence levels
+    const newConfidence: FieldConfidence = {
+      title: 'none',
+      amount: 'none',
+      date: 'none',
+    };
+
     if (result.rawText) {
       setRawOcrText(result.rawText);
     }
 
     if (result.success) {
-      // Auto-fill biller name as title
+      const alertMessages: string[] = [];
+      
+      // Process biller name - confidence based auto-fill
       if (result.billerName) {
         const cat = detectCategory(result.billerName);
         setCategory(cat);
-        const catName = CATEGORY_NAMES[cat] || 'Fatura';
-        setTitle(`${result.billerName} ${catName} Faturası`);
+        const catName = CATEGORY_NAMES[cat] || 'Gider';
+        setTitle(`${result.billerName} ${catName}`);
+        
+        // Set confidence level (from warnings we can infer confidence)
+        const hasBillerWarning = result.warnings.some(w => w.includes('Kurum adı'));
+        newConfidence.title = hasBillerWarning ? 'medium' : 'high';
+        
+        if (hasBillerWarning) {
+          alertMessages.push(`⚠️ Kurum: "${result.billerName}" - doğrulayın`);
+        }
       }
 
-      // Auto-fill amount
-      if (result.amount) {
+      // Process amount - confidence based auto-fill
+      if (result.amount !== undefined && result.amount > 0) {
         setAmount(result.amount.toFixed(2));
+        
+        const hasAmountWarning = result.warnings.some(w => w.includes('Tutar'));
+        newConfidence.amount = hasAmountWarning ? 'medium' : 'high';
+        
+        if (hasAmountWarning) {
+          alertMessages.push(`⚠️ Tutar: ${result.amount.toFixed(2)} TL - doğrulayın`);
+        }
       }
 
-      // Auto-fill due date
+      // Process due date - confidence based auto-fill
       if (result.dueDate) {
         try {
           const d = new Date(result.dueDate);
-          if (!isNaN(d.getTime())) setDueDate(d);
+          if (!isNaN(d.getTime())) {
+            setDueDate(d);
+            
+            const hasDateWarning = result.warnings.some(w => w.includes('tarih'));
+            newConfidence.date = hasDateWarning ? 'medium' : 'high';
+            
+            if (hasDateWarning) {
+              alertMessages.push(`⚠️ Tarih: ${d.toLocaleDateString('tr-TR')} - doğrulayın`);
+            }
+          }
         } catch {}
       }
 
-      // Show success or warnings
-      if (result.warnings.length > 0) {
-        Alert.alert('Tarama Tamamlandı', 
-          `Bazı alanları kontrol edin:\n• ${result.warnings.join('\n• ')}`,
+      setFieldConfidence(newConfidence);
+
+      // Show success or warnings alert
+      const hasAnyData = result.billerName || result.amount || result.dueDate;
+      const hasMediumConfidence = Object.values(newConfidence).some(c => c === 'medium');
+      
+      if (hasMediumConfidence && alertMessages.length > 0) {
+        Alert.alert(
+          '🔍 Tarama Tamamlandı', 
+          `Bazı alanlar düşük güvenle çıkarıldı:\n\n${alertMessages.join('\n')}\n\nSarı kenarlı alanları kontrol edin.`,
           [{ text: 'Tamam' }]
         );
-      } else if (result.billerName || result.amount || result.dueDate) {
-        Alert.alert('Tarama Başarılı', 'Fatura bilgileri dolduruldu. Kontrol edip kaydedin.');
+      } else if (hasAnyData) {
+        Alert.alert(
+          '✅ Tarama Başarılı', 
+          'Fatura bilgileri yüksek güvenle dolduruldu. Kontrol edip kaydedin.',
+          [{ text: 'Tamam' }]
+        );
       } else if (result.error) {
         Alert.alert('Uyarı', result.error);
       }
