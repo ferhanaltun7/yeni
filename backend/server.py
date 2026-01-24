@@ -527,47 +527,59 @@ class BillScanResponse(BaseModel):
     raw_text: Optional[str] = None
     error: Optional[str] = None
 
-# OCR.space API for text extraction
-OCR_API_KEY = "K85482945088957"  # Free tier
-OCR_API_URL = "https://api.ocr.space/parse/image"
-
-async def extract_text_from_image(image_base64: str) -> Optional[str]:
-    """Extract text from image using OCR.space API"""
+async def extract_text_with_google_vision(image_base64: str) -> Optional[str]:
+    """Extract text from image using Google Cloud Vision API"""
+    if not GOOGLE_VISION_API_KEY:
+        logger.error("Google Vision API key not configured")
+        return None
+    
     try:
-        import aiohttp
+        url = f"https://vision.googleapis.com/v1/images:annotate?key={GOOGLE_VISION_API_KEY}"
         
-        # Prepare form data
-        data = aiohttp.FormData()
-        data.add_field('apikey', OCR_API_KEY)
-        data.add_field('base64Image', f"data:image/jpeg;base64,{image_base64}")
-        data.add_field('language', 'tur')  # Turkish
-        data.add_field('isOverlayRequired', 'false')
-        data.add_field('detectOrientation', 'true')
-        data.add_field('scale', 'true')
-        data.add_field('OCREngine', '2')
+        payload = {
+            "requests": [
+                {
+                    "image": {
+                        "content": image_base64
+                    },
+                    "features": [
+                        {
+                            "type": "TEXT_DETECTION",
+                            "maxResults": 1
+                        }
+                    ],
+                    "imageContext": {
+                        "languageHints": ["tr"]  # Turkish
+                    }
+                }
+            ]
+        }
         
-        async with aiohttp.ClientSession() as session:
-            async with session.post(OCR_API_URL, data=data, timeout=30) as response:
-                if response.status != 200:
-                    logger.error(f"OCR API error: {response.status}")
-                    return None
-                
-                result = await response.json()
-                
-                if result.get('IsErroredOnProcessing'):
-                    logger.error(f"OCR processing error: {result.get('ErrorMessage')}")
-                    return None
-                
-                if result.get('ParsedResults') and len(result['ParsedResults']) > 0:
-                    return result['ParsedResults'][0].get('ParsedText')
-                
+        async with httpx.AsyncClient() as client:
+            response = await client.post(url, json=payload, timeout=30.0)
+            
+            if response.status_code != 200:
+                logger.error(f"Google Vision API error: {response.status_code} - {response.text}")
                 return None
+            
+            result = response.json()
+            
+            if "responses" in result and len(result["responses"]) > 0:
+                annotations = result["responses"][0].get("textAnnotations", [])
+                if annotations:
+                    return annotations[0].get("description", "")
+            
+            return None
+            
     except Exception as e:
-        logger.error(f"OCR extraction error: {e}")
+        logger.error(f"Google Vision extraction error: {e}")
         return None
 
 async def parse_bill_with_ai(ocr_text: str) -> dict:
     """Parse OCR text with AI to extract bill information"""
+    if not EMERGENT_LLM_KEY:
+        return {}
+    
     try:
         from emergentintegrations.llm.chat import LlmChat, UserMessage
         
@@ -577,32 +589,33 @@ async def parse_bill_with_ai(ocr_text: str) -> dict:
             system_message="""Sen bir Türk fatura analiz uzmanısın. Sana verilen OCR metninden fatura bilgilerini çıkarıyorsun.
 
 Metinden şu bilgileri çıkar:
-1. title: Fatura başlığı (örn: "Enerjisa Elektrik Faturası", "İSKİ Su Faturası")
-2. amount: Ödenecek tutar (sadece sayı, örn: 456.78)
-3. due_date: Son ödeme tarihi (YYYY-MM-DD formatında)
+1. title: Fatura başlığı - şirket adını da ekle (örn: "Enerjisa Elektrik Faturası", "İSKİ Su Faturası", "İGDAŞ Doğalgaz Faturası")
+2. amount: Ödenecek toplam tutar (sadece sayı, örn: 456.78). "Toplam", "Tutar", "Fatura Bedeli", "Ödenecek Tutar" gibi yerlere bak.
+3. due_date: Son ödeme tarihi (YYYY-MM-DD formatında). "Son Ödeme", "Vade", "S.Ö.T" gibi yerlere bak.
 4. category: Kategori (SADECE şunlardan biri: electricity, water, gas, internet, phone, rent, market, subscriptions)
 
-Kategori belirleme kuralları:
-- elektrik, enerji, enerjisa, tedaş, bedaş → electricity
-- su, iski, aski → water  
-- doğalgaz, igdaş → gas
-- internet, ttnet, türk telekom, superonline → internet
+Kategori belirleme:
+- elektrik, enerji, enerjisa, tedaş, bedaş, kw, kwh → electricity
+- su, iski, aski, m³ → water  
+- doğalgaz, doğal gaz, igdaş → gas
+- internet, ttnet, türk telekom, superonline, fiber → internet
 - telefon, gsm, turkcell, vodafone → phone
 - kira → rent
 - market, migros, a101, bim → market
 - netflix, spotify, abonelik → subscriptions
 
-SADECE JSON formatında yanıt ver, başka hiçbir şey yazma:
+ÖNEMLİ: SADECE JSON formatında yanıt ver, başka hiçbir şey yazma:
 {"title": "...", "amount": 123.45, "due_date": "2025-01-20", "category": "electricity"}
 
-Bulamadığın alanlar için null yaz."""
+Bulamadığın alanlar için null yaz. Tutarı Türk formatından (1.234,56) normal formata (1234.56) çevir."""
         ).with_model("openai", "gpt-4o-mini")
         
         user_message = UserMessage(
-            text=f"Bu fatura metninden bilgileri çıkar:\n\n{ocr_text[:2000]}"
+            text=f"Bu Türk fatura metninden bilgileri çıkar:\n\n{ocr_text[:3000]}"
         )
         
         response = await chat.send_message(user_message)
+        logger.info(f"AI Response: {response}")
         
         # Parse JSON response
         clean_response = response.strip()
@@ -621,16 +634,17 @@ async def scan_bill(
     request: BillScanRequest,
     current_user: User = Depends(get_current_user)
 ):
-    """Scan a bill image and extract information using OCR + AI"""
+    """Scan a bill image with Google Vision OCR + AI parsing"""
     
     try:
-        # Step 1: Extract text from image using OCR
+        # Clean base64 data
         image_base64 = request.image_base64
         if image_base64.startswith("data:"):
             image_base64 = image_base64.split(",")[1]
         
-        logger.info("Starting OCR extraction...")
-        ocr_text = await extract_text_from_image(image_base64)
+        # Step 1: Extract text with Google Cloud Vision
+        logger.info("Starting Google Vision OCR...")
+        ocr_text = await extract_text_with_google_vision(image_base64)
         
         if not ocr_text or len(ocr_text.strip()) < 10:
             return BillScanResponse(
@@ -639,13 +653,12 @@ async def scan_bill(
             )
         
         logger.info(f"OCR extracted {len(ocr_text)} characters")
+        logger.info(f"OCR Text Preview: {ocr_text[:500]}")
         
         # Step 2: Parse text with AI
-        if EMERGENT_LLM_KEY:
-            logger.info("Parsing with AI...")
-            parsed_data = await parse_bill_with_ai(ocr_text)
-        else:
-            parsed_data = {}
+        logger.info("Parsing with AI...")
+        parsed_data = await parse_bill_with_ai(ocr_text)
+        logger.info(f"Parsed data: {parsed_data}")
         
         # Extract values
         title = parsed_data.get("title")
@@ -653,7 +666,7 @@ async def scan_bill(
         due_date = parsed_data.get("due_date")
         category = parsed_data.get("category")
         
-        # Validate amount
+        # Validate and convert amount
         if amount is not None:
             try:
                 amount = float(amount)
@@ -675,7 +688,7 @@ async def scan_bill(
             amount=amount,
             due_date=due_date,
             category=category,
-            raw_text=ocr_text[:500] if ocr_text else None,
+            raw_text=ocr_text[:800] if ocr_text else None,
             error=None if has_data else "Fatura bilgileri tam olarak çıkarılamadı. Lütfen kontrol edin."
         )
         
