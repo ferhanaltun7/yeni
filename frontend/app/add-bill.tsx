@@ -375,8 +375,36 @@ export default function AddBill() {
 
           {/* Due Date */}
           <View style={styles.inputGroup}>
-            <Text style={styles.label}>Son Ödeme Tarihi *</Text>
-            <TouchableOpacity style={styles.dateButton} onPress={() => setShowDatePicker(true)}>
+            <View style={styles.labelRow}>
+              <Text style={styles.label}>Son Ödeme Tarihi *</Text>
+              {fieldConfidence.date !== 'none' && (
+                <View style={[styles.confidenceBadge, { backgroundColor: getConfidenceBorderColor(fieldConfidence.date) + '20' }]}>
+                  <Ionicons 
+                    name={fieldConfidence.date === 'high' ? 'checkmark-circle' : 'alert-circle'} 
+                    size={12} 
+                    color={getConfidenceBorderColor(fieldConfidence.date)} 
+                  />
+                  <Text style={[styles.confidenceText, { color: getConfidenceBorderColor(fieldConfidence.date) }]}>
+                    {fieldConfidence.date === 'high' ? 'AI ✓' : 'Kontrol edin'}
+                  </Text>
+                </View>
+              )}
+            </View>
+            <TouchableOpacity 
+              style={[
+                styles.dateButton,
+                fieldConfidence.date !== 'none' && { 
+                  borderColor: getConfidenceBorderColor(fieldConfidence.date),
+                  borderWidth: 2 
+                }
+              ]} 
+              onPress={() => {
+                setShowDatePicker(true);
+                if (fieldConfidence.date !== 'none') {
+                  setFieldConfidence(prev => ({ ...prev, date: 'none' }));
+                }
+              }}
+            >
               <Ionicons name="calendar" size={20} color={COLORS.primary} />
               <Text style={styles.dateText}>
                 {dueDate.toLocaleDateString('tr-TR', { day: '2-digit', month: 'long', year: 'numeric' })}
