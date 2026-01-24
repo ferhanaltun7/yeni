@@ -83,7 +83,7 @@ export default function AddBill() {
     switch (level) {
       case 'high': return COLORS.success;
       case 'medium': return COLORS.warning;
-      case 'low': return COLORS.error;
+      case 'low': return COLORS.danger;
       default: return COLORS.border;
     }
   };
