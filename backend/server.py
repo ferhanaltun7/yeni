@@ -23,8 +23,11 @@ mongo_url = os.environ['MONGO_URL']
 client = AsyncIOMotorClient(mongo_url)
 db = client[os.environ.get('DB_NAME', 'test_database')]
 
-# Emergent LLM Key for OCR
+# Emergent LLM Key for AI parsing
 EMERGENT_LLM_KEY = os.environ.get('EMERGENT_LLM_KEY', '')
+
+# Google Cloud Vision API Key for OCR
+GOOGLE_VISION_API_KEY = os.environ.get('GOOGLE_CLOUD_VISION_API_KEY', '')
 
 # Create the main app
 app = FastAPI(title="Bütçe Asistanı API")
