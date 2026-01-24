@@ -285,3 +285,5 @@ agent_communication:
     message: "Initial MVP implementation complete. Backend has auth, bills CRUD, dashboard stats, categories. Frontend has login, onboarding, dashboard, bills list, add bill, bill details, profile screens. Please test backend APIs first using auth_testing.md playbook."
   - agent: "testing"
     message: "✅ Backend API testing completed successfully. All major endpoints working: Health Check (✅), Categories (✅), Auth/Me (✅), Bills CRUD (✅), Dashboard Stats (✅). Created comprehensive test suite in /app/backend_test.py. Auth Session Exchange not tested as it requires external Emergent Auth integration. 9/10 tests passed - all critical functionality working correctly."
+  - agent: "main"
+    message: "OCR özelliği güncellendi. Frontend add-bill.tsx ekranı artık confidence score'larını işliyor ve form alanlarına görsel uyarılar gösteriyor. Yeşil = yüksek güven (AI ✓), Sarı = orta güven (Kontrol edin). Backend OCR endpoint test edildi, doğru JSON yapısını döndürüyor. Lütfen OCR endpoint'ini tam bir fatura görseli ile test edin."
