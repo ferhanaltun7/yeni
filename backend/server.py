@@ -518,6 +518,263 @@ async def get_category_groups():
 
 # ============== OCR / BILL SCANNING ==============
 
+class OcrBillRequest(BaseModel):
+    imageBase64: str
+    mimeType: str = "image/jpeg"
+
+class ParsedField(BaseModel):
+    value: Optional[str] = None
+    confidence: float = 0.0
+    evidence: List[str] = []
+
+class ParsedBillData(BaseModel):
+    biller_name: ParsedField
+    due_date: ParsedField
+    amount_due: ParsedField
+    currency: ParsedField
+
+class OcrBillResponse(BaseModel):
+    rawText: str
+    parsed: ParsedBillData
+
+# Turkish month names for date parsing
+TR_MONTHS = {
+    'ocak': '01', 'şubat': '02', 'mart': '03', 'nisan': '04',
+    'mayıs': '05', 'haziran': '06', 'temmuz': '07', 'ağustos': '08',
+    'eylül': '09', 'ekim': '10', 'kasım': '11', 'aralık': '12'
+}
+
+def verify_app_secret(request: Request):
+    """Verify x-app-secret header"""
+    secret = request.headers.get("x-app-secret")
+    if not APP_SHARED_SECRET or secret != APP_SHARED_SECRET:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
+async def call_vision_api(image_base64: str) -> Optional[str]:
+    """Call Google Cloud Vision DOCUMENT_TEXT_DETECTION"""
+    if not GOOGLE_VISION_API_KEY:
+        return None
+    
+    try:
+        url = f"https://vision.googleapis.com/v1/images:annotate?key={GOOGLE_VISION_API_KEY}"
+        payload = {
+            "requests": [{
+                "image": {"content": image_base64},
+                "features": [{"type": "DOCUMENT_TEXT_DETECTION", "maxResults": 1}],
+                "imageContext": {"languageHints": ["tr", "en"]}
+            }]
+        }
+        
+        async with httpx.AsyncClient() as client:
+            response = await client.post(url, json=payload, timeout=30.0)
+            if response.status_code != 200:
+                logger.error(f"Vision API error: {response.status_code}")
+                return None
+            
+            result = response.json()
+            if "responses" in result and result["responses"]:
+                full_text = result["responses"][0].get("fullTextAnnotation", {})
+                return full_text.get("text", "")
+        return None
+    except Exception as e:
+        logger.error(f"Vision API error: {e}")
+        return None
+
+def parse_turkish_amount(text: str) -> tuple[Optional[float], List[str]]:
+    """Parse Turkish amount format: 1.250,75 TL -> 1250.75"""
+    evidence = []
+    patterns = [
+        (r'(?:ödenecek tutar|tahsil edilecek tutar|genel toplam|toplam tutar|toplam|amount due)[:\s]*([0-9.,]+)\s*(?:tl|₺)?', 0.9),
+        (r'([0-9]{1,3}(?:\.[0-9]{3})*,[0-9]{2})\s*(?:tl|₺)', 0.7),
+        (r'([0-9]+,[0-9]{2})\s*(?:tl|₺)', 0.6),
+    ]
+    
+    for pattern, conf in patterns:
+        matches = re.findall(pattern, text.lower())
+        for match in matches:
+            try:
+                # Clean: 1.250,75 -> 1250.75
+                clean = match.replace('.', '').replace(',', '.')
+                amount = float(clean)
+                if 0.01 < amount < 100000:
+                    # Find evidence line
+                    for line in text.split('\n'):
+                        if match in line.lower() or str(int(amount)) in line:
+                            evidence.append(line.strip()[:100])
+                            break
+                    return amount, evidence[:2]
+            except:
+                continue
+    return None, []
+
+def parse_turkish_date(text: str) -> tuple[Optional[str], List[str]]:
+    """Parse Turkish date formats to ISO YYYY-MM-DD"""
+    evidence = []
+    
+    # Keywords for due date
+    date_keywords = ['son ödeme tarihi', 'son odeme tarihi', 'vade', 'ödeme tarihi', 'due date', 's.ö.t']
+    
+    # Find lines with keywords
+    relevant_lines = []
+    for line in text.split('\n'):
+        line_lower = line.lower()
+        for kw in date_keywords:
+            if kw in line_lower:
+                relevant_lines.append(line)
+                break
+    
+    # Date patterns
+    patterns = [
+        r'(\d{1,2})[./\-](\d{1,2})[./\-](\d{4})',  # DD.MM.YYYY
+        r'(\d{1,2})[./\-](\d{1,2})[./\-](\d{2})',   # DD.MM.YY
+        r'(\d{1,2})\s+(ocak|şubat|mart|nisan|mayıs|haziran|temmuz|ağustos|eylül|ekim|kasım|aralık)\s+(\d{4})',  # DD Month YYYY
+    ]
+    
+    search_text = '\n'.join(relevant_lines) if relevant_lines else text
+    
+    for pattern in patterns:
+        matches = re.finditer(pattern, search_text.lower())
+        for match in matches:
+            try:
+                groups = match.groups()
+                if len(groups) == 3:
+                    if groups[1] in TR_MONTHS:
+                        # Turkish month name
+                        day = int(groups[0])
+                        month = int(TR_MONTHS[groups[1]])
+                        year = int(groups[2])
+                    else:
+                        day = int(groups[0])
+                        month = int(groups[1])
+                        year = int(groups[2])
+                        if year < 100:
+                            year += 2000
+                    
+                    if 1 <= day <= 31 and 1 <= month <= 12 and 2024 <= year <= 2030:
+                        iso_date = f"{year}-{month:02d}-{day:02d}"
+                        # Find evidence
+                        for line in text.split('\n'):
+                            if match.group(0) in line.lower():
+                                evidence.append(line.strip()[:100])
+                                break
+                        return iso_date, evidence[:2]
+            except:
+                continue
+    return None, []
+
+def parse_biller_name(text: str) -> tuple[Optional[str], List[str]]:
+    """Extract biller/company name"""
+    evidence = []
+    lines = text.split('\n')
+    
+    # Known billers
+    known_billers = {
+        'enerjisa': 'Enerjisa', 'tedaş': 'TEDAŞ', 'bedaş': 'BEDAŞ', 'aydem': 'Aydem',
+        'iski': 'İSKİ', 'aski': 'ASKİ', 'izsu': 'İZSU', 'buski': 'BUSKİ',
+        'igdaş': 'İGDAŞ', 'egegaz': 'EgeGaz', 'başkentgaz': 'BaşkentGaz',
+        'türk telekom': 'Türk Telekom', 'superonline': 'Superonline', 'vodafone': 'Vodafone',
+        'turkcell': 'Turkcell', 'denizli büyükşehir': 'Denizli Büyükşehir Belediyesi',
+        'istanbul büyükşehir': 'İstanbul Büyükşehir Belediyesi',
+    }
+    
+    text_lower = text.lower()
+    for key, name in known_billers.items():
+        if key in text_lower:
+            for line in lines[:5]:
+                if key in line.lower():
+                    evidence.append(line.strip()[:100])
+                    break
+            return name, evidence[:2]
+    
+    # Try first non-empty lines (usually header)
+    for line in lines[:3]:
+        clean = line.strip()
+        if len(clean) > 5 and not any(c.isdigit() for c in clean[:5]):
+            evidence.append(clean[:100])
+            return clean[:50], evidence
+    
+    return None, []
+
+def detect_currency(text: str) -> tuple[str, List[str]]:
+    """Detect currency"""
+    evidence = []
+    text_lower = text.lower()
+    
+    if 'tl' in text_lower or '₺' in text or 'türk lirası' in text_lower:
+        for line in text.split('\n'):
+            if 'tl' in line.lower() or '₺' in line:
+                evidence.append(line.strip()[:100])
+                break
+        return 'TRY', evidence[:1]
+    
+    if 'usd' in text_lower or '$' in text:
+        return 'USD', ['Currency detected: USD']
+    if 'eur' in text_lower or '€' in text:
+        return 'EUR', ['Currency detected: EUR']
+    
+    return 'TRY', ['Default currency: TRY']
+
+@api_router.post("/ocr/bill", response_model=OcrBillResponse)
+async def ocr_bill(request: Request, body: OcrBillRequest):
+    """OCR endpoint with confidence scoring"""
+    
+    # Verify app secret
+    verify_app_secret(request)
+    
+    # Clean base64
+    image_base64 = body.imageBase64
+    if image_base64.startswith("data:"):
+        image_base64 = image_base64.split(",")[1]
+    
+    # Call Vision API
+    raw_text = await call_vision_api(image_base64)
+    
+    if not raw_text:
+        return OcrBillResponse(
+            rawText="",
+            parsed=ParsedBillData(
+                biller_name=ParsedField(value=None, confidence=0, evidence=[]),
+                due_date=ParsedField(value=None, confidence=0, evidence=[]),
+                amount_due=ParsedField(value=None, confidence=0, evidence=[]),
+                currency=ParsedField(value=None, confidence=0, evidence=[])
+            )
+        )
+    
+    logger.info(f"OCR extracted {len(raw_text)} chars")
+    
+    # Parse fields
+    biller, biller_ev = parse_biller_name(raw_text)
+    due_date, date_ev = parse_turkish_date(raw_text)
+    amount, amount_ev = parse_turkish_amount(raw_text)
+    currency, curr_ev = detect_currency(raw_text)
+    
+    return OcrBillResponse(
+        rawText=raw_text[:2000],
+        parsed=ParsedBillData(
+            biller_name=ParsedField(
+                value=biller,
+                confidence=0.85 if biller else 0.0,
+                evidence=biller_ev
+            ),
+            due_date=ParsedField(
+                value=due_date,
+                confidence=0.9 if due_date else 0.0,
+                evidence=date_ev
+            ),
+            amount_due=ParsedField(
+                value=str(amount) if amount else None,
+                confidence=0.9 if amount else 0.0,
+                evidence=amount_ev
+            ),
+            currency=ParsedField(
+                value=currency,
+                confidence=0.95,
+                evidence=curr_ev
+            )
+        )
+    )
+
+# Keep old endpoint for backward compatibility
 class BillScanRequest(BaseModel):
     image_base64: str
 
@@ -530,56 +787,8 @@ class BillScanResponse(BaseModel):
     raw_text: Optional[str] = None
     error: Optional[str] = None
 
-async def extract_text_with_google_vision(image_base64: str) -> Optional[str]:
-    """Extract text from image using Google Cloud Vision API"""
-    if not GOOGLE_VISION_API_KEY:
-        logger.error("Google Vision API key not configured")
-        return None
-    
-    try:
-        url = f"https://vision.googleapis.com/v1/images:annotate?key={GOOGLE_VISION_API_KEY}"
-        
-        payload = {
-            "requests": [
-                {
-                    "image": {
-                        "content": image_base64
-                    },
-                    "features": [
-                        {
-                            "type": "TEXT_DETECTION",
-                            "maxResults": 1
-                        }
-                    ],
-                    "imageContext": {
-                        "languageHints": ["tr"]  # Turkish
-                    }
-                }
-            ]
-        }
-        
-        async with httpx.AsyncClient() as client:
-            response = await client.post(url, json=payload, timeout=30.0)
-            
-            if response.status_code != 200:
-                logger.error(f"Google Vision API error: {response.status_code} - {response.text}")
-                return None
-            
-            result = response.json()
-            
-            if "responses" in result and len(result["responses"]) > 0:
-                annotations = result["responses"][0].get("textAnnotations", [])
-                if annotations:
-                    return annotations[0].get("description", "")
-            
-            return None
-            
-    except Exception as e:
-        logger.error(f"Google Vision extraction error: {e}")
-        return None
-
 async def parse_bill_with_ai(ocr_text: str) -> dict:
-    """Parse OCR text with AI to extract bill information"""
+    """Parse OCR text with AI"""
     if not EMERGENT_LLM_KEY:
         return {}
     
@@ -589,118 +798,60 @@ async def parse_bill_with_ai(ocr_text: str) -> dict:
         chat = LlmChat(
             api_key=EMERGENT_LLM_KEY,
             session_id=f"bill_parse_{uuid.uuid4().hex[:8]}",
-            system_message="""Sen bir Türk fatura analiz uzmanısın. Sana verilen OCR metninden fatura bilgilerini çıkarıyorsun.
+            system_message="""Sen bir Türk fatura analiz uzmanısın. OCR metninden fatura bilgilerini çıkar.
 
-Metinden şu bilgileri çıkar:
-1. title: Fatura başlığı - şirket adını da ekle (örn: "Enerjisa Elektrik Faturası", "İSKİ Su Faturası", "İGDAŞ Doğalgaz Faturası")
-2. amount: Ödenecek toplam tutar (sadece sayı, örn: 456.78). "Toplam", "Tutar", "Fatura Bedeli", "Ödenecek Tutar" gibi yerlere bak.
-3. due_date: Son ödeme tarihi (YYYY-MM-DD formatında). "Son Ödeme", "Vade", "S.Ö.T" gibi yerlere bak.
-4. category: Kategori (SADECE şunlardan biri: electricity, water, gas, internet, phone, rent, market, subscriptions)
+Çıkarılacak bilgiler:
+1. title: Şirket + fatura türü (örn: "Enerjisa Elektrik Faturası")
+2. amount: Ödenecek tutar (sayı: 456.78)
+3. due_date: Son ödeme (YYYY-MM-DD)
+4. category: electricity/water/gas/internet/phone/rent/market/subscriptions
 
-Kategori belirleme:
-- elektrik, enerji, enerjisa, tedaş, bedaş, kw, kwh → electricity
-- su, iski, aski, m³ → water  
-- doğalgaz, doğal gaz, igdaş → gas
-- internet, ttnet, türk telekom, superonline, fiber → internet
-- telefon, gsm, turkcell, vodafone → phone
-- kira → rent
-- market, migros, a101, bim → market
-- netflix, spotify, abonelik → subscriptions
+SADECE JSON döndür:
+{"title": "...", "amount": 123.45, "due_date": "2025-01-20", "category": "..."}
 
-ÖNEMLİ: SADECE JSON formatında yanıt ver, başka hiçbir şey yazma:
-{"title": "...", "amount": 123.45, "due_date": "2025-01-20", "category": "electricity"}
-
-Bulamadığın alanlar için null yaz. Tutarı Türk formatından (1.234,56) normal formata (1234.56) çevir."""
+Bulamazsan null yaz."""
         ).with_model("openai", "gpt-4o-mini")
         
-        user_message = UserMessage(
-            text=f"Bu Türk fatura metninden bilgileri çıkar:\n\n{ocr_text[:3000]}"
-        )
+        response = await chat.send_message(UserMessage(text=f"Fatura metni:\n{ocr_text[:3000]}"))
         
-        response = await chat.send_message(user_message)
-        logger.info(f"AI Response: {response}")
+        clean = response.strip()
+        if clean.startswith("```"):
+            clean = re.sub(r'^```(?:json)?\n?', '', clean)
+            clean = re.sub(r'\n?```$', '', clean)
         
-        # Parse JSON response
-        clean_response = response.strip()
-        if clean_response.startswith("```"):
-            clean_response = re.sub(r'^```(?:json)?\n?', '', clean_response)
-            clean_response = re.sub(r'\n?```$', '', clean_response)
-        
-        return json.loads(clean_response)
-        
+        return json.loads(clean)
     except Exception as e:
-        logger.error(f"AI parsing error: {e}")
+        logger.error(f"AI parse error: {e}")
         return {}
 
 @api_router.post("/bills/scan", response_model=BillScanResponse)
-async def scan_bill(
-    request: BillScanRequest,
-    current_user: User = Depends(get_current_user)
-):
-    """Scan a bill image with Google Vision OCR + AI parsing"""
-    
+async def scan_bill(request: Request, body: BillScanRequest, current_user: User = Depends(get_current_user)):
+    """Legacy scan endpoint with AI parsing"""
     try:
-        # Clean base64 data
-        image_base64 = request.image_base64
+        image_base64 = body.image_base64
         if image_base64.startswith("data:"):
             image_base64 = image_base64.split(",")[1]
         
-        # Step 1: Extract text with Google Cloud Vision
-        logger.info("Starting Google Vision OCR...")
-        ocr_text = await extract_text_with_google_vision(image_base64)
+        raw_text = await call_vision_api(image_base64)
         
-        if not ocr_text or len(ocr_text.strip()) < 10:
-            return BillScanResponse(
-                success=False,
-                error="Faturada metin bulunamadı. Lütfen daha net bir fotoğraf çekin."
-            )
+        if not raw_text or len(raw_text) < 10:
+            return BillScanResponse(success=False, error="Metin bulunamadı")
         
-        logger.info(f"OCR extracted {len(ocr_text)} characters")
-        logger.info(f"OCR Text Preview: {ocr_text[:500]}")
+        logger.info(f"OCR: {len(raw_text)} chars")
         
-        # Step 2: Parse text with AI
-        logger.info("Parsing with AI...")
-        parsed_data = await parse_bill_with_ai(ocr_text)
-        logger.info(f"Parsed data: {parsed_data}")
-        
-        # Extract values
-        title = parsed_data.get("title")
-        amount = parsed_data.get("amount")
-        due_date = parsed_data.get("due_date")
-        category = parsed_data.get("category")
-        
-        # Validate and convert amount
-        if amount is not None:
-            try:
-                amount = float(amount)
-                if amount <= 0 or amount > 100000:
-                    amount = None
-            except (ValueError, TypeError):
-                amount = None
-        
-        # Validate category
-        valid_categories = ['electricity', 'water', 'gas', 'internet', 'phone', 'rent', 'market', 'subscriptions']
-        if category and category not in valid_categories:
-            category = None
-        
-        has_data = title or amount or due_date or category
+        parsed = await parse_bill_with_ai(raw_text)
         
         return BillScanResponse(
             success=True,
-            title=title,
-            amount=amount,
-            due_date=due_date,
-            category=category,
-            raw_text=ocr_text[:800] if ocr_text else None,
-            error=None if has_data else "Fatura bilgileri tam olarak çıkarılamadı. Lütfen kontrol edin."
+            title=parsed.get("title"),
+            amount=float(parsed["amount"]) if parsed.get("amount") else None,
+            due_date=parsed.get("due_date"),
+            category=parsed.get("category"),
+            raw_text=raw_text[:800]
         )
-        
     except Exception as e:
-        logger.error(f"Bill scan error: {e}")
-        return BillScanResponse(
-            success=False,
-            error=f"Fatura taraması başarısız: {str(e)}"
-        )
+        logger.error(f"Scan error: {e}")
+        return BillScanResponse(success=False, error=str(e))
 
 # ============== HEALTH CHECK ==============
 
