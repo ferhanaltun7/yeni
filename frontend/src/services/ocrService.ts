@@ -5,7 +5,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 
 export interface BillScanResult {
   success: boolean;
-  amount?: string;
+  amount?: number;
   dueDate?: string;
   category?: string;
   title?: string;
@@ -13,110 +13,7 @@ export interface BillScanResult {
   error?: string;
 }
 
-// Category detection keywords
-const CATEGORY_KEYWORDS: Record<string, string[]> = {
-  electricity: ['elektrik', 'enerji', 'aydem', 'enerjisa', 'tedaş', 'başkent', 'bedaş', 'gediz', 'toroslar', 'dicle', 'kw', 'kwh', 'sayaç'],
-  water: ['su', 'iski', 'aski', 'izsu', 'buski', 'deski', 'meski', 'kaski', 'koski', 'm³', 'metreküp'],
-  gas: ['doğalgaz', 'gaz', 'igdaş', 'egegaz', 'başkentgaz', 'izmirgaz', 'bursagaz'],
-  internet: ['internet', 'ttnet', 'türk telekom', 'turknet', 'superonline', 'vodafone net', 'fiber', 'mbps'],
-  phone: ['telefon', 'gsm', 'mobil', 'cep', 'turkcell', 'vodafone', 'hat', 'kontör'],
-  subscriptions: ['netflix', 'spotify', 'youtube', 'amazon', 'disney', 'exxen', 'abonelik'],
-  rent: ['kira', 'konut', 'daire'],
-  market: ['market', 'migros', 'a101', 'bim', 'şok', 'carrefour'],
-};
-
-const CATEGORY_TITLES: Record<string, string> = {
-  electricity: 'Elektrik Faturası',
-  water: 'Su Faturası',
-  gas: 'Doğalgaz Faturası',
-  internet: 'İnternet Faturası',
-  phone: 'Telefon Faturası',
-  subscriptions: 'Abonelik',
-  rent: 'Kira',
-  market: 'Market Alışverişi',
-};
-
-/**
- * Parse amount from Turkish bill text
- */
-function parseAmount(text: string): string | undefined {
-  const patterns = [
-    /(?:toplam|tutar|ödenmesi gereken|ödenecek|fatura bedeli|borç)[:\s]*[₺]?\s*([0-9]+[.,][0-9]{2})/gi,
-    /([0-9]+[.,][0-9]{2})\s*(?:tl|₺)/gi,
-    /(?:tl|₺)\s*([0-9]+[.,][0-9]{2})/gi,
-    /([0-9]{1,3}(?:\.[0-9]{3})*,[0-9]{2})/g,
-  ];
-  
-  for (const pattern of patterns) {
-    pattern.lastIndex = 0;
-    const matches = [...text.toLowerCase().matchAll(pattern)];
-    
-    for (const match of matches) {
-      if (match && match[1]) {
-        let amount = match[1].replace(/\s/g, '');
-        
-        if (amount.includes('.') && amount.includes(',')) {
-          amount = amount.replace(/\./g, '').replace(',', '.');
-        } else if (amount.includes(',')) {
-          amount = amount.replace(',', '.');
-        }
-        
-        const numValue = parseFloat(amount);
-        if (!isNaN(numValue) && numValue > 1 && numValue < 50000) {
-          return numValue.toFixed(2);
-        }
-      }
-    }
-  }
-  return undefined;
-}
-
-/**
- * Parse due date from Turkish bill text
- */
-function parseDueDate(text: string): string | undefined {
-  const patterns = [
-    /(?:son ödeme|vade|ödeme tarihi|s\.ö\.t)[:\s]*(\d{1,2}[./-]\d{1,2}[./-]\d{2,4})/gi,
-    /(\d{2}[.]\d{2}[.]\d{4})/g,
-  ];
-  
-  for (const pattern of patterns) {
-    pattern.lastIndex = 0;
-    const match = text.match(pattern);
-    
-    if (match && match[0]) {
-      const dateMatch = match[0].match(/(\d{1,2})[./-](\d{1,2})[./-](\d{2,4})/);
-      if (dateMatch) {
-        let day = parseInt(dateMatch[1]);
-        let month = parseInt(dateMatch[2]);
-        let year = parseInt(dateMatch[3]);
-        
-        if (year < 100) year += 2000;
-        
-        if (day >= 1 && day <= 31 && month >= 1 && month <= 12 && year >= 2024) {
-          return `${year}-${month.toString().padStart(2, '0')}-${day.toString().padStart(2, '0')}`;
-        }
-      }
-    }
-  }
-  return undefined;
-}
-
-/**
- * Detect bill category from text
- */
-function parseCategory(text: string): string | undefined {
-  const lowerText = text.toLowerCase();
-  
-  for (const [category, keywords] of Object.entries(CATEGORY_KEYWORDS)) {
-    for (const keyword of keywords) {
-      if (lowerText.includes(keyword.toLowerCase())) {
-        return category;
-      }
-    }
-  }
-  return undefined;
-}
+const API_URL = process.env.EXPO_PUBLIC_BACKEND_URL || '';
 
 /**
  * Request permissions
@@ -132,7 +29,10 @@ async function requestPermissions(): Promise<boolean> {
  */
 async function pickAndCompressImage(useCamera: boolean): Promise<string | null> {
   const hasPermission = await requestPermissions();
-  if (!hasPermission) return null;
+  if (!hasPermission) {
+    console.log('Permissions not granted');
+    return null;
+  }
 
   const options: ImagePicker.ImagePickerOptions = {
     mediaTypes: ImagePicker.MediaTypeOptions.Images,
@@ -150,77 +50,34 @@ async function pickAndCompressImage(useCamera: boolean): Promise<string | null> 
     return null;
   }
 
-  if (result.canceled || !result.assets[0]) return null;
+  if (result.canceled || !result.assets[0]) {
+    console.log('Image picking cancelled');
+    return null;
+  }
 
+  // Compress and resize image
   try {
+    console.log('Compressing image...');
     const manipResult = await ImageManipulator.manipulateAsync(
       result.assets[0].uri,
       [{ resize: { width: 1200 } }],
       { compress: 0.7, format: ImageManipulator.SaveFormat.JPEG, base64: true }
     );
+    console.log('Image compressed, base64 length:', manipResult.base64?.length);
     return manipResult.base64 || null;
   } catch (error) {
-    console.log('Image manipulation failed:', error);
+    console.error('Image manipulation failed:', error);
     return null;
   }
 }
 
 /**
- * Call OCR API (free-ocr.com as backup)
- */
-async function callOcrApi(base64Image: string): Promise<string | null> {
-  // Try OCR.space first
-  try {
-    const formData = new FormData();
-    formData.append('apikey', 'K85482945088957');
-    formData.append('base64Image', `data:image/jpeg;base64,${base64Image}`);
-    formData.append('language', 'tur');
-    formData.append('OCREngine', '2');
-
-    const response = await fetch('https://api.ocr.space/parse/image', {
-      method: 'POST',
-      body: formData,
-    });
-
-    const data = await response.json();
-    
-    if (!data.IsErroredOnProcessing && data.ParsedResults?.[0]?.ParsedText) {
-      return data.ParsedResults[0].ParsedText;
-    }
-  } catch (error) {
-    console.log('OCR.space failed, trying backup...');
-  }
-
-  // Backup: Try API from backend
-  try {
-    const token = await AsyncStorage.getItem('session_token');
-    const API_URL = process.env.EXPO_PUBLIC_BACKEND_URL || '';
-    
-    const response = await axios.post(
-      `${API_URL}/api/bills/scan`,
-      { image_base64: base64Image },
-      { 
-        headers: { Authorization: `Bearer ${token}` },
-        timeout: 30000
-      }
-    );
-
-    if (response.data.rawText) {
-      return response.data.rawText;
-    }
-  } catch (error) {
-    console.log('Backend OCR failed');
-  }
-
-  return null;
-}
-
-/**
- * Main scan function
+ * Main scan function - sends to backend for Google Vision OCR + AI parsing
  */
 export async function scanBill(useCamera: boolean = true): Promise<BillScanResult> {
   try {
-    // Step 1: Pick image
+    // Step 1: Pick and compress image
+    console.log('Starting bill scan...');
     const base64Image = await pickAndCompressImage(useCamera);
     
     if (!base64Image) {
@@ -230,45 +87,70 @@ export async function scanBill(useCamera: boolean = true): Promise<BillScanResul
       };
     }
 
-    // Step 2: OCR
-    const rawText = await callOcrApi(base64Image);
+    // Step 2: Send to backend for processing
+    console.log('Sending to backend for OCR + AI processing...');
+    const token = await AsyncStorage.getItem('session_token');
     
-    if (!rawText || rawText.trim().length < 10) {
+    const response = await axios.post(
+      `${API_URL}/api/bills/scan`,
+      { image_base64: base64Image },
+      { 
+        headers: { 
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
+        timeout: 60000 // 60 second timeout for OCR + AI
+      }
+    );
+
+    console.log('Backend response:', response.data);
+
+    if (response.data.success) {
+      return {
+        success: true,
+        title: response.data.title,
+        amount: response.data.amount,
+        dueDate: response.data.due_date,
+        category: response.data.category,
+        rawText: response.data.raw_text,
+        error: response.data.error,
+      };
+    } else {
       return {
         success: false,
-        error: 'Faturada metin bulunamadı. Lütfen daha net bir fotoğraf çekin.',
+        rawText: response.data.raw_text,
+        error: response.data.error || 'Tarama başarısız oldu.',
       };
     }
 
-    console.log('OCR Text:', rawText.substring(0, 200));
-
-    // Step 3: Parse
-    const amount = parseAmount(rawText);
-    const dueDate = parseDueDate(rawText);
-    const category = parseCategory(rawText);
-    const title = category ? CATEGORY_TITLES[category] : undefined;
-
-    const hasData = amount || dueDate || category;
-
-    return {
-      success: true,
-      amount,
-      dueDate,
-      category,
-      title,
-      rawText: rawText.substring(0, 500),
-      error: hasData ? undefined : 'Bilgiler tam çıkarılamadı. Lütfen kontrol edin.',
-    };
-
-  } catch (error) {
+  } catch (error: any) {
     console.error('Scan error:', error);
+    
+    if (error.response) {
+      console.error('Response error:', error.response.data);
+      return {
+        success: false,
+        error: error.response.data?.detail || 'Sunucu hatası oluştu.',
+      };
+    }
+    
+    if (error.code === 'ECONNABORTED') {
+      return {
+        success: false,
+        error: 'İşlem zaman aşımına uğradı. Lütfen tekrar deneyin.',
+      };
+    }
+    
     return {
       success: false,
-      error: 'Tarama başarısız. Lütfen tekrar deneyin.',
+      error: 'Fatura taraması başarısız oldu. Lütfen tekrar deneyin.',
     };
   }
 }
 
+/**
+ * Scan from gallery
+ */
 export async function scanBillFromGallery(): Promise<BillScanResult> {
   return scanBill(false);
 }
