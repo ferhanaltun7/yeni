@@ -29,6 +29,9 @@ EMERGENT_LLM_KEY = os.environ.get('EMERGENT_LLM_KEY', '')
 # Google Cloud Vision API Key for OCR
 GOOGLE_VISION_API_KEY = os.environ.get('GOOGLE_CLOUD_VISION_API_KEY', '')
 
+# App shared secret for mobile auth
+APP_SHARED_SECRET = os.environ.get('APP_SHARED_SECRET', '')
+
 # Create the main app
 app = FastAPI(title="Bütçe Asistanı API")
 
