@@ -716,7 +716,7 @@ def detect_currency(text: str) -> tuple[str, List[str]]:
 
 @api_router.post("/ocr/bill", response_model=OcrBillResponse)
 async def ocr_bill(request: Request, body: OcrBillRequest):
-    """OCR endpoint with confidence scoring"""
+    """OCR endpoint with AI-powered parsing and confidence scoring"""
     
     # Verify app secret
     verify_app_secret(request)
@@ -742,37 +742,122 @@ async def ocr_bill(request: Request, body: OcrBillRequest):
     
     logger.info(f"OCR extracted {len(raw_text)} chars")
     
-    # Parse fields
-    biller, biller_ev = parse_biller_name(raw_text)
-    due_date, date_ev = parse_turkish_date(raw_text)
-    amount, amount_ev = parse_turkish_amount(raw_text)
-    currency, curr_ev = detect_currency(raw_text)
+    # Use AI for smart parsing
+    ai_result = await parse_bill_with_ai_v2(raw_text)
     
+    # Fallback to regex if AI fails
+    if not ai_result:
+        biller, biller_ev = parse_biller_name(raw_text)
+        due_date, date_ev = parse_turkish_date(raw_text)
+        amount, amount_ev = parse_turkish_amount(raw_text)
+        currency, curr_ev = detect_currency(raw_text)
+        
+        return OcrBillResponse(
+            rawText=raw_text[:2000],
+            parsed=ParsedBillData(
+                biller_name=ParsedField(
+                    value=biller,
+                    confidence=0.6 if biller else 0.0,
+                    evidence=biller_ev
+                ),
+                due_date=ParsedField(
+                    value=due_date,
+                    confidence=0.5 if due_date else 0.0,
+                    evidence=date_ev
+                ),
+                amount_due=ParsedField(
+                    value=str(amount) if amount else None,
+                    confidence=0.5 if amount else 0.0,
+                    evidence=amount_ev
+                ),
+                currency=ParsedField(
+                    value=currency,
+                    confidence=0.95,
+                    evidence=curr_ev
+                )
+            )
+        )
+    
+    # Use AI results
     return OcrBillResponse(
         rawText=raw_text[:2000],
         parsed=ParsedBillData(
             biller_name=ParsedField(
-                value=biller,
-                confidence=0.85 if biller else 0.0,
-                evidence=biller_ev
+                value=ai_result.get("biller_name"),
+                confidence=ai_result.get("biller_confidence", 0.85),
+                evidence=[ai_result.get("biller_evidence", "")] if ai_result.get("biller_evidence") else []
             ),
             due_date=ParsedField(
-                value=due_date,
-                confidence=0.9 if due_date else 0.0,
-                evidence=date_ev
+                value=ai_result.get("due_date"),
+                confidence=ai_result.get("due_date_confidence", 0.85),
+                evidence=[ai_result.get("due_date_evidence", "")] if ai_result.get("due_date_evidence") else []
             ),
             amount_due=ParsedField(
-                value=str(amount) if amount else None,
-                confidence=0.9 if amount else 0.0,
-                evidence=amount_ev
+                value=str(ai_result.get("amount")) if ai_result.get("amount") else None,
+                confidence=ai_result.get("amount_confidence", 0.85),
+                evidence=[ai_result.get("amount_evidence", "")] if ai_result.get("amount_evidence") else []
             ),
             currency=ParsedField(
-                value=currency,
+                value=ai_result.get("currency", "TRY"),
                 confidence=0.95,
-                evidence=curr_ev
+                evidence=["TL detected"]
             )
         )
     )
+
+
+async def parse_bill_with_ai_v2(ocr_text: str) -> Optional[dict]:
+    """Parse OCR text with AI - improved version for Turkish bills"""
+    if not EMERGENT_LLM_KEY:
+        return None
+    
+    try:
+        from emergentintegrations.llm.chat import LlmChat, UserMessage
+        
+        chat = LlmChat(
+            api_key=EMERGENT_LLM_KEY,
+            session_id=f"bill_parse_{uuid.uuid4().hex[:8]}",
+            system_message="""Sen bir Türk fatura analiz uzmanısın. OCR metninden fatura bilgilerini çıkar.
+
+ÖNEMLİ KURALLAR:
+1. "Son Ödeme Tarihi" veya "S.Ö.T." veya "Vade Tarihi" yazan tarihi bul - bu SON ÖDEME TARİHİdir
+2. "Fatura Tarihi" veya "Düzenleme Tarihi" SON ÖDEME TARİHİ DEĞİLDİR, bunları ATLA
+3. "Ödenecek Tutar", "Toplam Borç", "Tahsil Edilecek Tutar", "Genel Toplam" yazan miktarı bul
+4. Şirket/kurum adını bul (Enerjisa, TEDAŞ, İSKİ, İGDAŞ, Türk Telekom vs.)
+
+ÇIKTI FORMATI (SADECE JSON):
+{
+  "biller_name": "Şirket Adı",
+  "biller_confidence": 0.9,
+  "biller_evidence": "metinden örnek satır",
+  "amount": 456.78,
+  "amount_confidence": 0.9,
+  "amount_evidence": "metinden örnek satır",
+  "due_date": "2025-02-15",
+  "due_date_confidence": 0.9,
+  "due_date_evidence": "SON ÖDEME TARİHİ: 15.02.2025",
+  "currency": "TRY"
+}
+
+Türk para formatı: 1.234,56 TL = 1234.56 (nokta binlik, virgül ondalık)
+Tarih formatı çıktıda: YYYY-MM-DD
+
+Bulamazsan null yaz, tahmin yapma. Confidence: kesin=0.95, muhtemel=0.7, belirsiz=0.4"""
+        ).with_model("openai", "gpt-4o-mini")
+        
+        response = await chat.send_message(UserMessage(text=f"Fatura OCR metni:\n\n{ocr_text[:4000]}"))
+        
+        clean = response.strip()
+        if clean.startswith("```"):
+            clean = re.sub(r'^```(?:json)?\n?', '', clean)
+            clean = re.sub(r'\n?```$', '', clean)
+        
+        result = json.loads(clean)
+        logger.info(f"AI parse result: {result}")
+        return result
+    except Exception as e:
+        logger.error(f"AI parse v2 error: {e}")
+        return None
 
 # Keep old endpoint for backward compatibility
 class BillScanRequest(BaseModel):
