@@ -19,6 +19,17 @@ import { billsAPI } from '../src/services/api';
 import { scanBill, scanBillFromGallery, BillScanResult } from '../src/services/ocrService';
 import { COLORS, CATEGORY_COLORS, CATEGORY_ICONS, CATEGORY_NAMES, CATEGORY_GROUPS } from '../src/utils/constants';
 
+// Confidence thresholds
+const HIGH_CONFIDENCE = 0.70;
+const LOW_CONFIDENCE = 0.40;
+
+// Field warning state
+interface FieldConfidence {
+  title: 'high' | 'medium' | 'low' | 'none';
+  amount: 'high' | 'medium' | 'low' | 'none';
+  date: 'high' | 'medium' | 'low' | 'none';
+}
+
 // Map biller names to categories
 const BILLER_TO_CATEGORY: Record<string, string> = {
   'enerjisa': 'electricity', 'tedaş': 'electricity', 'bedaş': 'electricity', 'aydem': 'electricity',
