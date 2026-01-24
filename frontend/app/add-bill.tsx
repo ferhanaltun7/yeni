@@ -65,6 +65,28 @@ export default function AddBill() {
   const [rawOcrText, setRawOcrText] = useState<string | null>(null);
   const [showRawText, setShowRawText] = useState(false);
   const [warnings, setWarnings] = useState<string[]>([]);
+  const [fieldConfidence, setFieldConfidence] = useState<FieldConfidence>({
+    title: 'none',
+    amount: 'none',
+    date: 'none',
+  });
+
+  // Get confidence level based on score
+  const getConfidenceLevel = (confidence: number): 'high' | 'medium' | 'low' => {
+    if (confidence >= HIGH_CONFIDENCE) return 'high';
+    if (confidence >= LOW_CONFIDENCE) return 'medium';
+    return 'low';
+  };
+
+  // Get border color based on confidence level
+  const getConfidenceBorderColor = (level: 'high' | 'medium' | 'low' | 'none') => {
+    switch (level) {
+      case 'high': return COLORS.success;
+      case 'medium': return COLORS.warning;
+      case 'low': return COLORS.error;
+      default: return COLORS.border;
+    }
+  };
 
   const handleDateChange = (event: any, selectedDate?: Date) => {
     setShowDatePicker(Platform.OS === 'ios');
