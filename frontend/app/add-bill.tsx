@@ -551,7 +551,25 @@ const styles = StyleSheet.create({
   divider: { flex: 1, height: 1, backgroundColor: COLORS.border },
   dividerText: { marginHorizontal: 12, fontSize: 12, color: COLORS.textSecondary },
   inputGroup: { marginBottom: 20 },
-  label: { fontSize: 14, fontWeight: '600', color: COLORS.text, marginBottom: 8 },
+  labelRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 8,
+  },
+  label: { fontSize: 14, fontWeight: '600', color: COLORS.text },
+  confidenceBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 8,
+    gap: 4,
+  },
+  confidenceText: {
+    fontSize: 11,
+    fontWeight: '600',
+  },
   input: {
     backgroundColor: COLORS.surface,
     borderRadius: 12,
