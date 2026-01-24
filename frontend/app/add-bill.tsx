@@ -294,11 +294,36 @@ export default function AddBill() {
 
           {/* Title */}
           <View style={styles.inputGroup}>
-            <Text style={styles.label}>Gider Adı *</Text>
+            <View style={styles.labelRow}>
+              <Text style={styles.label}>Gider Adı *</Text>
+              {fieldConfidence.title !== 'none' && (
+                <View style={[styles.confidenceBadge, { backgroundColor: getConfidenceBorderColor(fieldConfidence.title) + '20' }]}>
+                  <Ionicons 
+                    name={fieldConfidence.title === 'high' ? 'checkmark-circle' : 'alert-circle'} 
+                    size={12} 
+                    color={getConfidenceBorderColor(fieldConfidence.title)} 
+                  />
+                  <Text style={[styles.confidenceText, { color: getConfidenceBorderColor(fieldConfidence.title) }]}>
+                    {fieldConfidence.title === 'high' ? 'AI ✓' : 'Kontrol edin'}
+                  </Text>
+                </View>
+              )}
+            </View>
             <TextInput
-              style={styles.input}
+              style={[
+                styles.input,
+                fieldConfidence.title !== 'none' && { 
+                  borderColor: getConfidenceBorderColor(fieldConfidence.title),
+                  borderWidth: 2 
+                }
+              ]}
               value={title}
-              onChangeText={setTitle}
+              onChangeText={(text) => {
+                setTitle(text);
+                if (fieldConfidence.title !== 'none') {
+                  setFieldConfidence(prev => ({ ...prev, title: 'none' }));
+                }
+              }}
               placeholder="Örn: Elektrik Faturası"
               placeholderTextColor={COLORS.textLight}
             />
@@ -306,12 +331,38 @@ export default function AddBill() {
 
           {/* Amount */}
           <View style={styles.inputGroup}>
-            <Text style={styles.label}>Tutar *</Text>
+            <View style={styles.labelRow}>
+              <Text style={styles.label}>Tutar *</Text>
+              {fieldConfidence.amount !== 'none' && (
+                <View style={[styles.confidenceBadge, { backgroundColor: getConfidenceBorderColor(fieldConfidence.amount) + '20' }]}>
+                  <Ionicons 
+                    name={fieldConfidence.amount === 'high' ? 'checkmark-circle' : 'alert-circle'} 
+                    size={12} 
+                    color={getConfidenceBorderColor(fieldConfidence.amount)} 
+                  />
+                  <Text style={[styles.confidenceText, { color: getConfidenceBorderColor(fieldConfidence.amount) }]}>
+                    {fieldConfidence.amount === 'high' ? 'AI ✓' : 'Kontrol edin'}
+                  </Text>
+                </View>
+              )}
+            </View>
             <View style={styles.amountContainer}>
               <TextInput
-                style={[styles.input, styles.amountInput]}
+                style={[
+                  styles.input, 
+                  styles.amountInput,
+                  fieldConfidence.amount !== 'none' && { 
+                    borderColor: getConfidenceBorderColor(fieldConfidence.amount),
+                    borderWidth: 2 
+                  }
+                ]}
                 value={amount}
-                onChangeText={setAmount}
+                onChangeText={(text) => {
+                  setAmount(text);
+                  if (fieldConfidence.amount !== 'none') {
+                    setFieldConfidence(prev => ({ ...prev, amount: 'none' }));
+                  }
+                }}
                 placeholder="0.00"
                 placeholderTextColor={COLORS.textLight}
                 keyboardType="decimal-pad"
