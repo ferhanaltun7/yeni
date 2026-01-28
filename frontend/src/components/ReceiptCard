@@ -1,0 +1,131 @@
+import React from ‘react’;
+import {
+View,
+Text,
+StyleSheet,
+TouchableOpacity,
+} from ‘react-native’;
+import { Ionicons } from ‘@expo/vector-icons’;
+import { Receipt } from ‘../types’;
+import { COLORS, RECEIPT_CATEGORY_COLORS, RECEIPT_CATEGORY_ICONS, RECEIPT_CATEGORY_NAMES } from ‘../utils/constants’;
+import { formatCurrency, formatDate } from ‘../utils/formatters’;
+
+interface ReceiptCardProps {
+receipt: Receipt;
+onPress?: () => void;
+}
+
+export const ReceiptCard: React.FC<ReceiptCardProps> = ({ receipt, onPress }) => {
+const categoryColor = RECEIPT_CATEGORY_COLORS[receipt.category] || ‘#6B7280’;
+const categoryIcon = RECEIPT_CATEGORY_ICONS[receipt.category] || ‘pricetag’;
+const categoryName = RECEIPT_CATEGORY_NAMES[receipt.category] || receipt.category;
+
+return (
+<TouchableOpacity
+style={[styles.container, { borderLeftColor: categoryColor }]}
+onPress={onPress}
+activeOpacity={0.7}
+>
+<View style={styles.content}>
+<View style={[styles.iconContainer, { backgroundColor: categoryColor + ‘20’ }]}>
+<Ionicons name={categoryIcon as any} size={24} color={categoryColor} />
+</View>
+
+```
+    <View style={styles.details}>
+      <Text style={styles.storeName} numberOfLines={1}>{receipt.store_name}</Text>
+      <Text style={styles.category}>{categoryName}</Text>
+      <View style={styles.dateRow}>
+        <Ionicons name="calendar-outline" size={14} color={COLORS.textSecondary} />
+        <Text style={styles.date}>{formatDate(receipt.receipt_date)}</Text>
+      </View>
+    </View>
+    
+    <View style={styles.rightSection}>
+      <Text style={styles.amount}>{formatCurrency(receipt.amount)}</Text>
+      {receipt.items && receipt.items.length > 0 && (
+        <View style={styles.itemsBadge}>
+          <Ionicons name="list" size={12} color={COLORS.textSecondary} />
+          <Text style={styles.itemsText}>{receipt.items.length} ürün</Text>
+        </View>
+      )}
+    </View>
+  </View>
+</TouchableOpacity>
+```
+
+);
+};
+
+const styles = StyleSheet.create({
+container: {
+backgroundColor: COLORS.surface,
+borderRadius: 12,
+marginHorizontal: 16,
+marginVertical: 6,
+borderLeftWidth: 4,
+shadowColor: ‘#000’,
+shadowOffset: { width: 0, height: 2 },
+shadowOpacity: 0.05,
+shadowRadius: 4,
+elevation: 2,
+},
+content: {
+flexDirection: ‘row’,
+alignItems: ‘center’,
+padding: 16,
+},
+iconContainer: {
+width: 48,
+height: 48,
+borderRadius: 12,
+justifyContent: ‘center’,
+alignItems: ‘center’,
+},
+details: {
+flex: 1,
+marginLeft: 12,
+},
+storeName: {
+fontSize: 16,
+fontWeight: ‘600’,
+color: COLORS.text,
+marginBottom: 2,
+},
+category: {
+fontSize: 13,
+color: COLORS.textSecondary,
+marginBottom: 4,
+},
+dateRow: {
+flexDirection: ‘row’,
+alignItems: ‘center’,
+gap: 4,
+},
+date: {
+fontSize: 12,
+color: COLORS.textSecondary,
+},
+rightSection: {
+alignItems: ‘flex-end’,
+},
+amount: {
+fontSize: 18,
+fontWeight: ‘700’,
+color: COLORS.text,
+marginBottom: 4,
+},
+itemsBadge: {
+flexDirection: ‘row’,
+alignItems: ‘center’,
+backgroundColor: COLORS.background,
+paddingHorizontal: 8,
+paddingVertical: 4,
+borderRadius: 8,
+gap: 4,
+},
+itemsText: {
+fontSize: 11,
+color: COLORS.textSecondary,
+},
+});
